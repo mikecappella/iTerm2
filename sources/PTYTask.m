@@ -454,7 +454,8 @@ static int MyForkPty(int *amaster,
     // notifier.
     signal(SIGCHLD, HandleSigChld);
     const char* argpath;
-    argpath = [[progpath stringByStandardizingPath] UTF8String];
+    NSString *commandToExec = [progpath stringByStandardizingPath];
+    argpath = [commandToExec UTF8String];
 
     int max = (args == nil) ? 0 : [args count];
     const char* argv[max + 2];
@@ -467,6 +468,8 @@ static int MyForkPty(int *amaster,
         }
     }
     argv[max + 1] = NULL;
+    DLog(@"Preparing to launch a job. Command is %@ and args are %@", commandToExec, args);
+    DLog(@"Environment is\n%@", env);
     char **newEnviron = [self environWithOverrides:env];
 
     // Note: stringByStandardizingPath will automatically call stringByExpandingTildeInPath.
@@ -502,6 +505,8 @@ static int MyForkPty(int *amaster,
 
         // Wait for serverConnectionFd to be written to.
         dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+        dispatch_release(semaphore);
 
         // Remove the temporary file. The server will create a new socket file
         // if the client dies. That file's name is dependent on its process ID,
@@ -799,19 +804,17 @@ static int MyForkPty(int *amaster,
     }
 }
 
-- (void)setWidth:(int)width height:(int)height
-{
-    PtyTaskDebugLog(@"Set terminal size to %dx%d", width, height);
+- (void)setSize:(VT100GridSize)size {
+    PtyTaskDebugLog(@"Set terminal size to %@", VT100GridSizeDescription(size));
     struct winsize winsize;
-    // TODO(georgen): Access to fd should be synchronized or else it should not be allowed to call this function from the main thread.
-    if (fd == -1) {
+    if (self.fd == -1) {
         return;
     }
 
     ioctl(fd, TIOCGWINSZ, &winsize);
-    if ((winsize.ws_col != width) || (winsize.ws_row != height)) {
-        winsize.ws_col = width;
-        winsize.ws_row = height;
+    if (winsize.ws_col != size.width || winsize.ws_row != size.height) {
+        winsize.ws_col = size.width;
+        winsize.ws_row = size.height;
         ioctl(fd, TIOCSWINSZ, &winsize);
     }
 }
@@ -822,7 +825,7 @@ static int MyForkPty(int *amaster,
 }
 
 - (BOOL)pidIsChild {
-    return _serverChildPid == 1 && _childPid != -1;
+    return _serverChildPid == -1 && _childPid != -1;
 }
 
 - (pid_t)serverPid {
@@ -1010,6 +1013,7 @@ static int MyForkPty(int *amaster,
 }
 
 - (NSString*)getWorkingDirectory {
+    DLog(@"Using OS magic to get the working directory");
     struct proc_vnodepathinfo vpi;
     int ret;
 
@@ -1027,13 +1031,17 @@ static int MyForkPty(int *amaster,
     }
     if (ret <= 0) {
         // An error occured
+        DLog(@"Failed with error %d", ret);
         return nil;
     } else if (ret != sizeof(vpi)) {
         // Now this is very bad...
+        DLog(@"Got a struct of the wrong size back");
         return nil;
     } else {
         // All is good
-        return [NSString stringWithUTF8String:vpi.pvi_cdir.vip_path];
+        NSString *dir = [NSString stringWithUTF8String:vpi.pvi_cdir.vip_path];
+        DLog(@"Result: %@", dir);
+        return dir;
     }
 }
 

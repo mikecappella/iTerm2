@@ -59,6 +59,7 @@ NSString *const kPreferenceKeyHideTabBar = @"HideTab";
 NSString *const kPreferenceKeyHideTabNumber = @"HideTabNumber";
 NSString *const kPreferenceKeyHideTabCloseButton = @"HideTabCloseButton";
 NSString *const kPreferenceKeyHideTabActivityIndicator = @"HideActivityIndicator";
+NSString *const kPreferenceKeyShowNewOutputIndicator = @"ShowNewOutputIndicator";
 NSString *const kPreferenceKeyShowPaneTitles = @"ShowPaneTitles";
 NSString *const kPreferenceKeyHideMenuBarInFullscreen = @"HideMenuBarInFullscreen";
 NSString *const kPreferenceKeyFlashTabBarInFullscreen = @"FlashTabBarInFullscreen";
@@ -109,8 +110,14 @@ NSString *const kPreferenceKeyPasteSpecialConvertUnicodePunctuation = @"ConvertU
 NSString *const kPreferenceKeyPasteSpecialConvertDosNewlines = @"ConvertDosNewlines";
 NSString *const kPreferenceKeyPasteSpecialRemoveControlCodes = @"RemoveControlCodes";
 NSString *const kPreferenceKeyPasteSpecialBracketedPasteMode = @"BracketedPasteMode";
+NSString *const kPreferencesKeyPasteSpecialUseRegexSubstitution = @"PasteSpecialUseRegexSubstitution";
+NSString *const kPreferencesKeyPasteSpecialRegex = @"PasteSpecialRegex";
+NSString *const kPreferencesKeyPasteSpecialSubstitution = @"PasteSpecialSubstitution";
+NSString *const kPreferenceKeyLeftTabBarWidth = @"LeftTabBarWidth";
 
 NSString *const kPreferenceKeyPasteWarningNumberOfSpacesPerTab = @"PasteTabToStringTabStopSize";
+
+NSString *const kPreferenceKeyShowFullscreenTabBar = @"ShowFullScreenTabBar";
 
 static NSMutableDictionary *gObservers;
 
@@ -183,7 +190,7 @@ static NSMutableDictionary *gObservers;
                   kPreferenceKeySavePasteAndCommandHistory: @NO,
                   kPreferenceKeyAddBonjourHostsToProfiles: @NO,
                   kPreferenceKeyCheckForUpdatesAutomatically: @YES,
-                  kPreferenceKeyCheckForTestReleases: @YES,
+                  kPreferenceKeyCheckForTestReleases: @NO,
                   kPreferenceKeyLoadPrefsFromCustomFolder: @NO,
                   kPreferenceKeyNeverRemindPrefsChangesLostForFileHaveSelection: @NO,
                   kPreferenceKeyNeverRemindPrefsChangesLostForFileSelection: @0,
@@ -206,6 +213,8 @@ static NSMutableDictionary *gObservers;
                   kPreferenceKeyHideTabNumber: @NO,
                   kPreferenceKeyHideTabCloseButton: @NO,
                   kPreferenceKeyHideTabActivityIndicator: @NO,
+                  kPreferenceKeyShowNewOutputIndicator: @YES,
+
                   kPreferenceKeyShowPaneTitles: @YES,
                   kPreferenceKeyHideMenuBarInFullscreen:@YES,
                   kPreferenceKeyFlashTabBarInFullscreen:@YES,
@@ -255,8 +264,13 @@ static NSMutableDictionary *gObservers;
                   kPreferenceKeyPasteSpecialConvertDosNewlines: @YES,
                   kPreferenceKeyPasteSpecialRemoveControlCodes: @YES,
                   kPreferenceKeyPasteSpecialBracketedPasteMode: @YES,
+                  kPreferencesKeyPasteSpecialUseRegexSubstitution: @NO,
+                  kPreferencesKeyPasteSpecialRegex: @"",
+                  kPreferencesKeyPasteSpecialSubstitution: @"",
 
                   kPreferenceKeyPasteWarningNumberOfSpacesPerTab: @4,
+                  kPreferenceKeyShowFullscreenTabBar: @YES,
+                  kPreferenceKeyLeftTabBarWidth: @150,
               };
         [dict retain];
     }
@@ -276,10 +290,15 @@ static NSMutableDictionary *gObservers;
     id defaultValue = [self defaultValueMap][key];
     switch (type) {
         case kPreferenceInfoTypeIntegerTextField:
+        case kPreferenceInfoTypeDoubleTextField:
         case kPreferenceInfoTypePopup:
             return ([defaultValue isKindOfClass:[NSNumber class]] &&
                     [defaultValue doubleValue] == ceil([defaultValue doubleValue]));
+        case kPreferenceInfoTypeUnsignedIntegerTextField:
+        case kPreferenceInfoTypeUnsignedIntegerPopup:
+            return ([defaultValue isKindOfClass:[NSNumber class]]);
         case kPreferenceInfoTypeCheckbox:
+        case kPreferenceInfoTypeInvertedCheckbox:
             return ([defaultValue isKindOfClass:[NSNumber class]] &&
                     ([defaultValue intValue] == YES ||
                      [defaultValue intValue] == NO));
@@ -387,11 +406,27 @@ static NSMutableDictionary *gObservers;
     [self setObject:@(value) forKey:key];
 }
 
++ (NSUInteger)unsignedIntegerForKey:(NSString *)key {
+    return [(NSNumber *)[self objectForKey:key] unsignedIntegerValue];
+}
+
++ (void)setUnsignedInteger:(NSUInteger)value forKey:(NSString *)key {
+    [self setObject:@(value) forKey:key];
+}
+
 + (double)floatForKey:(NSString *)key {
     return [(NSNumber *)[self objectForKey:key] doubleValue];
 }
 
 + (void)setFloat:(double)value forKey:(NSString *)key {
+    [self setObject:@(value) forKey:key];
+}
+
++ (double)doubleForKey:(NSString *)key {
+    return [(NSNumber *)[self objectForKey:key] doubleValue];
+}
+
++ (void)setDouble:(double)value forKey:(NSString *)key {
     [self setObject:@(value) forKey:key];
 }
 

@@ -33,6 +33,8 @@
     IBOutlet NSTableView *_table;
 
     IBOutlet NSScrollView *_scrollView;
+
+    IBOutlet SolidColorView *_divider;
 }
 
 + (instancetype)sharedInstance {
@@ -76,8 +78,10 @@
     contentView.wantsLayer = YES;
     contentView.layer.cornerRadius = 6;
     contentView.layer.masksToBounds = YES;
-    contentView.layer.borderColor = [[NSColor colorWithCalibratedRed:0.75 green:0.75 blue:0.75 alpha:1] CGColor];
-    contentView.layer.borderWidth = 1;
+    contentView.layer.borderColor = [[NSColor colorWithCalibratedRed:0.66 green:0.66 blue:0.66 alpha:1] CGColor];
+    contentView.layer.borderWidth = 0.5;
+
+    _divider.color = [NSColor colorWithCalibratedRed:0.66 green:0.66 blue:0.66 alpha:1];
 }
 
 - (void)presentWindow {
@@ -102,6 +106,7 @@
     // autoresizing to do this automatically.
     NSRect frame = [self frame];
     NSRect contentViewFrame = [self.window frameRectForContentRect:frame];
+    _divider.hidden = (self.model.items.count == 0);
     _scrollView.frame = NSMakeRect(_scrollView.frame.origin.x,
                                    _scrollView.frame.origin.y,
                                    contentViewFrame.size.width,
@@ -130,7 +135,7 @@
     if (!screen) {
         screen = [NSScreen mainScreen];
     }
-    static const CGFloat kMarginAboveField = 6;
+    static const CGFloat kMarginAboveField = 10;
     static const CGFloat kMarginBelowField = 6;
     static const CGFloat kMarginAboveWindow = 170;
     CGFloat maxHeight = screen.frame.size.height - kMarginAboveWindow * 2;
@@ -139,8 +144,15 @@
                                          (maxHeight - nonTableSpace) / (_table.rowHeight + _table.intercellSpacing.height));
     NSRect frame = self.window.frame;
     NSSize contentSize = frame.size;
-    contentSize.height = nonTableSpace + (_table.rowHeight + _table.intercellSpacing.height) * numberOfVisibleRowsDesired;
 
+    contentSize.height = nonTableSpace;
+    if (numberOfVisibleRowsDesired > 0) {
+        // Use the bottom of the last visible cell's frame for the height of the table view portion
+        // of the window. This is the most reliable way of getting its max-Y position.
+        NSRect frameOfLastVisibleCell = [_table frameOfCellAtColumn:0
+                                                                row:numberOfVisibleRowsDesired - 1];
+        contentSize.height += NSMaxY(frameOfLastVisibleCell);
+    }
     frame.size.height = contentSize.height;
 
     frame.origin.x = NSMinX(screen.frame) + floor((screen.frame.size.width - frame.size.width) / 2);
@@ -161,12 +173,14 @@
     if (row >= 0) {
         id object = [self.model objectAtIndex:row];
         if ([object isKindOfClass:[PTYSession class]]) {
+            // Switch to session
             PTYSession *session = object;
             if (session) {
-                NSWindowController<iTermWindowController> *term = session.tab.realParentWindow;
+                NSWindowController<iTermWindowController> *term = session.delegate.realParentWindow;
                 [term makeSessionActive:session];
             }
         } else if ([object isKindOfClass:[Profile class]]) {
+            // Create a new tab/window
             Profile *profile = object;
             iTermController *controller = [iTermController sharedInstance];
             [controller launchBookmark:profile
@@ -174,10 +188,27 @@
                                withURL:nil
                               isHotkey:NO
                                makeKey:YES
+                           canActivate:YES
                                command:nil
                                  block:nil];
         } else if ([object isKindOfClass:[NSString class]]) {
+            // Load window arrangement
             [[iTermController sharedInstance] loadWindowArrangementWithName:object];
+        } else if ([object isKindOfClass:[iTermOpenQuicklyChangeProfileItem class]]) {
+            // Change profile
+            PseudoTerminal *term = [[iTermController sharedInstance] currentTerminal];
+            PTYSession *session = term.currentSession;
+            NSString *guid = [object identifier];
+            Profile *profile = [[ProfileModel sharedInstance] bookmarkWithGuid:guid];
+            if (profile) {
+                [session setProfile:profile preservingName:YES];
+                // Make sure the OS doesn't pick some random window to make key
+                [term.window makeKeyAndOrderFront:nil];
+            }
+        } else if ([object isKindOfClass:[iTermOpenQuicklyHelpItem class]]) {
+            _textField.stringValue = [object identifier];
+            [self update];
+            return;
         }
     }
 
@@ -278,6 +309,25 @@
         default:
             break;
     }
+}
+
+// This makes ^N and ^P work.
+- (BOOL)control:(NSControl*)control textView:(NSTextView*)textView doCommandBySelector:(SEL)commandSelector {
+    BOOL result = NO;
+    
+    if (commandSelector == @selector(moveUp:) || commandSelector == @selector(moveDown:)) {
+        NSInteger row = [_table selectedRow];
+        if (row < 0) {
+            row = 0;
+        } else if (commandSelector == @selector(moveUp:) && row > 0) {
+            row--;
+        } else if (commandSelector == @selector(moveDown:) && row + 1 < _table.numberOfRows) {
+            row++;
+        }
+        [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+        result = YES;
+    }
+    return result;
 }
 
 #pragma mark - iTermOpenQuicklyTextFieldDelegate

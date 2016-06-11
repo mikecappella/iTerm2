@@ -20,7 +20,9 @@ typedef NS_ENUM(NSInteger, iTermOpenTmuxWindowsMode) {
 // Values for kPreferenceKeyTabStyle. Do not alter values in this enumeration as they are saved in the preferences.
 typedef NS_ENUM(int, iTermPreferencesTabStyle) {
     TAB_STYLE_LIGHT = 0,
-    TAB_STYLE_DARK = 1
+    TAB_STYLE_DARK = 1,
+    TAB_STYLE_LIGHT_HIGH_CONTRAST = 2,
+    TAB_STYLE_DARK_HIGH_CONTRAST = 3
 };
 
 // Values for kPreferenceKeyTabPosition (corresponds to tags in control).
@@ -77,6 +79,7 @@ extern NSString *const kPreferenceKeyHideTabBar;
 extern NSString *const kPreferenceKeyHideTabNumber;
 extern NSString *const kPreferenceKeyHideTabCloseButton;
 extern NSString *const kPreferenceKeyHideTabActivityIndicator;
+extern NSString *const kPreferenceKeyShowNewOutputIndicator;
 extern NSString *const kPreferenceKeyShowPaneTitles;
 extern NSString *const kPreferenceKeyHideMenuBarInFullscreen;
 extern NSString *const kPreferenceKeyFlashTabBarInFullscreen;
@@ -133,8 +136,14 @@ extern NSString *const kPreferenceKeyPasteSpecialConvertUnicodePunctuation;
 extern NSString *const kPreferenceKeyPasteSpecialConvertDosNewlines;
 extern NSString *const kPreferenceKeyPasteSpecialRemoveControlCodes;
 extern NSString *const kPreferenceKeyPasteSpecialBracketedPasteMode;
+extern NSString *const kPreferencesKeyPasteSpecialUseRegexSubstitution;
+extern NSString *const kPreferencesKeyPasteSpecialRegex;
+extern NSString *const kPreferencesKeyPasteSpecialSubstitution;
+extern NSString *const kPreferenceKeyLeftTabBarWidth;
 
 extern NSString *const kPreferenceKeyPasteWarningNumberOfSpacesPerTab;
+
+extern NSString *const kPreferenceKeyShowFullscreenTabBar;
 
 @interface iTermPreferences : NSObject
 
@@ -151,8 +160,14 @@ extern NSString *const kPreferenceKeyPasteWarningNumberOfSpacesPerTab;
 + (int)intForKey:(NSString *)key;
 + (void)setInt:(int)value forKey:(NSString *)key;
 
++ (NSUInteger)unsignedIntegerForKey:(NSString *)key;
++ (void)setUnsignedInteger:(NSUInteger)value forKey:(NSString *)key;
+
 + (double)floatForKey:(NSString *)key;
 + (void)setFloat:(double)value forKey:(NSString *)key;
+
++ (double)doubleForKey:(NSString *)key;
++ (void)setDouble:(double)value forKey:(NSString *)key;
 
 + (NSString *)stringForKey:(NSString *)key;
 + (void)setString:(NSString *)value forKey:(NSString *)key;

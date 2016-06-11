@@ -10,6 +10,7 @@
 
 #import "CapturedOutput.h"
 #import "CaptureTrigger.h"
+#import "iTermCapturedOutputMark.h"
 #import "iTermCommandHistoryCommandUseMO+Addtions.h"
 #import "iTermSearchField.h"
 #import "iTermToolbeltView.h"
@@ -306,6 +307,14 @@ static const CGFloat kMargin = 4;
 
 - (void)controlTextDidChange:(NSNotification *)aNotification {
     [self updateCapturedOutput];
+}
+
+- (NSArray *)control:(NSControl *)control
+            textView:(NSTextView *)textView
+         completions:(NSArray *)words
+ forPartialWordRange:(NSRange)charRange
+ indexOfSelectedItem:(NSInteger *)index {
+    return @[];
 }
 
 #pragma mark - Actions

@@ -36,6 +36,7 @@
 - (void)selectNextPaneWithEvent:(NSEvent *)event;
 - (void)selectPreviousPaneWithEvent:(NSEvent *)event;
 - (void)extendSelectionWithEvent:(NSEvent *)event;
+- (void)quickLookWithEvent:(NSEvent *)event;
 
 @end
 
@@ -46,6 +47,7 @@
 
 - (BOOL)mouseDown:(NSEvent *)event withTouches:(int)numTouches ignoreOption:(BOOL)ignoreOption;
 - (BOOL)mouseUp:(NSEvent *)event withTouches:(int)numTouches;
+- (BOOL)pressureChangeWithEvent:(NSEvent *)event;
 - (void)swipeWithEvent:(NSEvent *)event;
 - (BOOL)eventEmulatesRightClick:(NSEvent *)event;
 - (void)notifyLeftMouseDown;

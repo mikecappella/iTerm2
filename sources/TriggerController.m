@@ -12,6 +12,7 @@
 #import "BounceTrigger.h"
 #import "CaptureTrigger.h"
 #import "CoprocessTrigger.h"
+#import "DebugLogging.h"
 #import "FutureMethods.h"
 #import "GrowlTrigger.h"
 #import "HighlightTrigger.h"
@@ -23,6 +24,8 @@
 #import "ProfileModel.h"
 #import "ScriptTrigger.h"
 #import "SendTextTrigger.h"
+#import "SetDirectoryTrigger.h"
+#import "SetHostnameTrigger.h"
 #import "StopTrigger.h"
 #import "Trigger.h"
 
@@ -67,11 +70,15 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
 
 @implementation TriggerController {
     NSArray *_triggers;
+    // Gives the index of the row being edited while a textfield cell is editing.
+    NSInteger _textEditingRow;
+
     IBOutlet NSTableView *_tableView;
     IBOutlet NSTableColumn *_regexColumn;
     IBOutlet NSTableColumn *_partialLineColumn;
     IBOutlet NSTableColumn *_actionColumn;
     IBOutlet NSTableColumn *_parametersColumn;
+    IBOutlet NSButton *_removeTriggerButton;
 }
 
 - (instancetype)init {
@@ -105,6 +112,8 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
                              [HighlightTrigger class],
                              [MarkTrigger class],
                              [PasswordTrigger class],
+                             [SetDirectoryTrigger class],
+                             [SetHostnameTrigger class],
                              [StopTrigger class] ];
 
     return [allClasses sortedArrayUsingComparator:^NSComparisonResult(id obj1, id obj2) {
@@ -229,8 +238,13 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
 }
 
 - (IBAction)removeTrigger:(id)sender {
-    assert(_tableView.selectedRow >= 0);
+    if (_tableView.selectedRow < 0) {
+        ELog(@"This shouldn't happen: you pressed the button to remove a trigger but no row is selected");
+        return;
+    }
     [self setTriggerDictionary:nil forRow:[_tableView selectedRow] reloadData:YES];
+    self.hasSelection = [_tableView numberOfSelectedRows] > 0;
+    _removeTriggerButton.enabled = self.hasSelection;
 }
 
 - (void)setGuid:(NSString *)guid {
@@ -393,6 +407,7 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
                                                                       0,
                                                                       kWellWidth,
                                                                       _tableView.rowHeight)] autorelease];
+                well.noColorAllowed = YES;
                 well.continuous = NO;
                 well.tag = row;
                 x += kWellWidth;
@@ -417,6 +432,7 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
                                                                          0,
                                                                          kWellWidth,
                                                                          _tableView.rowHeight)] autorelease];
+                well.noColorAllowed = YES;
                 well.continuous = NO;
                 well.color = trigger.backgroundColor;
                 well.tag = row;
@@ -482,6 +498,9 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
                 textField.bordered = NO;
                 textField.drawsBackground = NO;
                 textField.delegate = self;
+                if ([textField respondsToSelector:@selector(setPlaceholderString:)]) {
+                    textField.placeholderString = [trigger paramPlaceholder];
+                }
                 textField.identifier = kParameterColumnIdentifier;
 
                 return textField;
@@ -495,6 +514,7 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
     self.hasSelection = [_tableView numberOfSelectedRows] > 0;
+    _removeTriggerButton.enabled = self.hasSelection;
 }
 
 #pragma mark NSWindowDelegate
@@ -557,15 +577,19 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
 }
 
 - (void)instantDidChange:(NSButton *)checkbox {
-    NSArray *triggerDicts = [self triggerDictionariesForCurrentProfile];
+    NSNumber *newValue = checkbox.state == NSOnState ? @(YES) : @(NO);
     NSInteger row = [_tableView rowForView:checkbox];
+    
+    // If a text field is editing, make it save its contents before we get the trigger dictionary.
+    [_tableView reloadData];
+    
+    NSArray *triggerDicts = [self triggerDictionariesForCurrentProfile];
     if (row < 0 || row >= triggerDicts.count) {
         return;
     }
     NSMutableDictionary *triggerDictionary =
         [[[self triggerDictionariesForCurrentProfile][row] mutableCopy] autorelease];
-    triggerDictionary[kTriggerPartialLineKey] =
-        checkbox.state == NSOnState ? @(YES) : @(NO);
+    triggerDictionary[kTriggerPartialLineKey] = newValue;
     [self setTriggerDictionary:triggerDictionary forRow:row reloadData:YES];
 }
 
@@ -574,10 +598,14 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
     if (rowIndex < 0) {
         return;
     }
+    NSInteger indexOfSelectedAction = [sender indexOfSelectedItem];
+    
+    // If a text field is being edited, end it and update the trigger dictionary before we fetch it.
+    [_tableView reloadData];
+
     NSMutableDictionary *triggerDictionary =
         [[[self triggerDictionariesForCurrentProfile][rowIndex] mutableCopy] autorelease];
-    NSInteger index = [sender indexOfSelectedItem];
-    Trigger *theTrigger = _triggers[index];
+    Trigger *theTrigger = _triggers[indexOfSelectedAction];
     triggerDictionary[kTriggerActionKey] = [theTrigger action];
     [triggerDictionary removeObjectForKey:kTriggerParameterKey];
     Trigger *triggerObj = [self triggerWithAction:triggerDictionary[kTriggerActionKey]];
@@ -606,21 +634,27 @@ static NSString *const kBackgroundColorWellIdentifier = @"kBackgroundColorWellId
 
 #pragma mark - NSTextFieldDelegate
 
+- (void)controlTextDidBeginEditing:(NSNotification *)obj {
+    // We have to save this here because when -reloadData gets called then the text field is no longer
+    // in the table and -rowForView: will return -1.
+    _textEditingRow = [_tableView rowForView:obj.object];
+}
+
 - (void)controlTextDidEndEditing:(NSNotification *)obj {
-    NSTextField *textField = [obj object];
-    NSInteger rowIndex = [_tableView rowForView:textField];
-    if (rowIndex < 0) {
+    NSTextField *textField = obj.object;
+    if (_textEditingRow < 0) {
         return;
     }
     NSMutableDictionary *triggerDictionary =
-        [[[self triggerDictionariesForCurrentProfile][rowIndex] mutableCopy] autorelease];
+        [[[self triggerDictionariesForCurrentProfile][_textEditingRow] mutableCopy] autorelease];
     if ([textField.identifier isEqual:kRegexColumnIdentifier]) {
         triggerDictionary[kTriggerRegexKey] = [textField stringValue];
-        [self setTriggerDictionary:triggerDictionary forRow:rowIndex reloadData:YES];
+        [self setTriggerDictionary:triggerDictionary forRow:_textEditingRow reloadData:YES];
     } else if ([textField.identifier isEqual:kParameterColumnIdentifier]) {
         triggerDictionary[kTriggerParameterKey] = [textField stringValue];
-        [self setTriggerDictionary:triggerDictionary forRow:rowIndex reloadData:YES];
+        [self setTriggerDictionary:triggerDictionary forRow:_textEditingRow reloadData:YES];
     }
+    _textEditingRow = -1;
 }
 
 @end

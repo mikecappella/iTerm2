@@ -124,7 +124,6 @@ static const int kLineBufferVersion = 1;
             return nil;
         }
         _mayHaveDoubleWidthCharacter = [dictionary[kLineBufferMayHaveDWCKey] boolValue];
-        blocks = [[NSMutableArray alloc] init];
         block_size = [dictionary[kLineBufferBlockSizeKey] intValue];
         cursor_x = [dictionary[kLineBufferCursorXKey] intValue];
         cursor_rawline = [dictionary[kLineBufferCursorRawlineKey] intValue];
@@ -360,23 +359,25 @@ static int RawNumLines(LineBuffer* buffer, int width) {
         // Append the prefix if there is one (the prefix was a partial line that we're
         // moving out of the last block into the new block)
         if (prefix) {
-            BOOL ok = [block appendLine:prefix
-                                 length:prefix_len
-                                partial:YES
-                                  width:width
-                              timestamp:prefixTimestamp
-                           continuation:continuation];
+            BOOL ok __attribute__((unused)) =
+                [block appendLine:prefix
+                           length:prefix_len
+                          partial:YES
+                            width:width
+                        timestamp:prefixTimestamp
+                     continuation:continuation];
             NSAssert(ok, @"append can't fail here");
             free(prefix);
         }
         // Finally, append this line to the new block. We know it'll fit because we made
         // enough room for it.
-        BOOL ok = [block appendLine:buffer
-                             length:length
-                            partial:partial
-                              width:width
-                          timestamp:timestamp
-                       continuation:continuation];
+        BOOL ok __attribute__((unused)) =
+            [block appendLine:buffer
+                       length:length
+                      partial:partial
+                        width:width
+                    timestamp:timestamp
+                 continuation:continuation];
         NSAssert(ok, @"append can't fail here");
     } else if (num_wrapped_lines_width == width) {
         // Straightforward addition of a line to an existing block. Update the
@@ -538,11 +539,12 @@ static int RawNumLines(LineBuffer* buffer, int width) {
     int length;
     screen_char_t* temp;
     screen_char_t continuation;
-    BOOL ok = [block popLastLineInto:&temp
-                          withLength:&length
-                           upToWidth:width
-                           timestamp:timestampPtr
-                        continuation:&continuation];
+    BOOL ok __attribute__((unused)) =
+        [block popLastLineInto:&temp
+                    withLength:&length
+                     upToWidth:width
+                     timestamp:timestampPtr
+                  continuation:&continuation];
     if (continuationPtr) {
         *continuationPtr = continuation;
     }
@@ -838,23 +840,6 @@ static int RawNumLines(LineBuffer* buffer, int width) {
     return result;
 }
 
-// Returns YES if the position is valid.
-- (BOOL)convertPosition:(int)position
-              withWidth:(int)width
-                    toX:(int*)x
-                    toY:(int*)y
-{
-    BOOL ok;
-    LineBufferPosition *lbp = [LineBufferPosition position];
-    lbp.absolutePosition = position + droppedChars;
-    lbp.yOffset = 0;
-    lbp.extendsToEndOfLine = NO;
-    VT100GridCoord coord = [self coordinateForPosition:lbp width:width ok:&ok];
-    *x = coord.x;
-    *y = coord.y;
-    return ok;
-}
-
 - (LineBufferPosition *)positionForCoordinate:(VT100GridCoord)coord
                                         width:(int)width
                                        offset:(int)offset
@@ -913,7 +898,12 @@ static int RawNumLines(LineBuffer* buffer, int width) {
 {
     if (position.absolutePosition == [self lastPos] + droppedChars) {
         VT100GridCoord result;
-        result.y = [self numLinesWithWidth:width] - 1;
+        // If the absolute position is equal to the last position, then
+        // numLinesWithWidth: will give the wrapped line number after all
+        // trailing empty lines. They all have the same position because they
+        // are empty. We need to back up by the number of empty lines and then
+        // use position.yOffset to disambiguate.
+        result.y = [self numLinesWithWidth:width] - 1 - [blocks.lastObject numberOfTrailingEmptyLines];
         ScreenCharArray *lastLine = [self wrappedLineAtIndex:result.y
                                                        width:width
                                                 continuation:NULL];
@@ -1081,6 +1071,7 @@ static int RawNumLines(LineBuffer* buffer, int width) {
 
 - (LineBuffer *)newAppendOnlyCopy {
     LineBuffer *theCopy = [[LineBuffer alloc] init];
+    [theCopy->blocks release];
     theCopy->blocks = [[NSMutableArray alloc] initWithArray:blocks];
     LineBlock *lastBlock = [blocks lastObject];
     if (lastBlock) {

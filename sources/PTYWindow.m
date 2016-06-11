@@ -22,14 +22,15 @@
  */
 
 #import "iTerm.h"
-#import "PTYWindow.h"
+#import "FutureMethods.h"
+#import "iTermAdvancedSettingsModel.h"
+#import "iTermApplicationDelegate.h"
+#import "iTermController.h"
+#import "iTermDelayedTitleSetter.h"
+#import "iTermPreferences.h"
 #import "PreferencePanel.h"
 #import "PseudoTerminal.h"
-#import "FutureMethods.h"
-#import "iTermController.h"
-#import "iTermApplicationDelegate.h"
-#import "iTermPreferences.h"
-#import "iTermAdvancedSettingsModel.h"
+#import "PTYWindow.h"
 #import "objc/runtime.h"
 
 #ifdef PSEUDOTERMINAL_VERBOSE_LOGGING
@@ -50,20 +51,89 @@
     // True while in -[NSWindow toggleFullScreen:].
     BOOL isTogglingLionFullScreen_;
     NSObject *restoreState_;
+    iTermDelayedTitleSetter *_titleSetter;
+    NSInteger _uniqueNumber;
 }
 
-- (void)dealloc
-{
+- (instancetype)initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)aStyle backing:(NSBackingStoreType)bufferingType defer:(BOOL)flag {
+    self = [super initWithContentRect:contentRect styleMask:aStyle backing:bufferingType defer:flag];
+    if (self) {
+        [self registerForNotifications];
+    }
+    return self;
+}
+
+- (instancetype)initWithContentRect:(NSRect)contentRect
+                          styleMask:(NSUInteger)aStyle
+                            backing:(NSBackingStoreType)bufferingType
+                              defer:(BOOL)flag
+                             screen:(nullable NSScreen *)screen {
+    self = [super initWithContentRect:contentRect
+                            styleMask:aStyle
+                              backing:bufferingType
+                                defer:flag
+                               screen:screen];
+    if (self) {
+        [self registerForNotifications];
+    }
+    return self;
+}
+
+ITERM_WEAKLY_REFERENCEABLE
+
+- (void)iterm_dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [restoreState_ release];
+    _titleSetter.window = nil;
+    [_titleSetter release];
     [super dealloc];
 
 }
 
+- (void)registerForNotifications {
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(delayedSetTitleNotification:)
+                                                 name:kDelayedTitleSetterSetTitle
+                                               object:self];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    if (item.action == @selector(performMiniaturize:)) {
+        // This makes borderless windows miniaturizable.
+        return ![_delegate anyFullScreen];
+    } else {
+        return [super validateMenuItem:item];
+    }
+}
+
+- (void)performMiniaturize:(id)sender {
+    if ([_delegate anyFullScreen]) {
+        [super performMiniaturize:sender];
+    } else {
+        // NSWindow's performMiniaturize gates miniaturization on the presence of a miniaturize button.
+        [self miniaturize:self];
+    }
+}
+
 - (NSString *)description {
-    return [NSString stringWithFormat:@"<%@: %p frame=%@>",
+    return [NSString stringWithFormat:@"<%@: %p frame=%@ title=%@ alpha=%f isMain=%d isKey=%d isVisible=%d delegate=%p>",
             [self class],
             self,
-            [NSValue valueWithRect:self.frame]];
+            [NSValue valueWithRect:self.frame],
+            self.title,
+            self.alphaValue,
+            (int)self.isMainWindow,
+            (int)self.isKeyWindow,
+            (int)self.isVisible,
+            self.delegate];
+}
+
+- (NSString *)windowIdentifier {
+    if (!_uniqueNumber) {
+        static NSInteger nextUniqueNumber = 1;
+        _uniqueNumber = nextUniqueNumber++;
+    }
+    return [NSString stringWithFormat:@"window-%ld", (long)_uniqueNumber];
 }
 
 - (void)encodeRestorableStateWithCoder:(NSCoder *)coder {
@@ -335,5 +405,22 @@ end:
     return totalOcclusion;
 }
 
-@end
+- (void)delayedSetTitle:(NSString *)title {
+    if (!_titleSetter) {
+        _titleSetter = [[iTermDelayedTitleSetter alloc] init];
+        _titleSetter.window = self;
+    }
+    [_titleSetter setTitle:title];
+}
 
+#pragma mark - Notifications
+
+- (void)delayedSetTitleNotification:(NSNotification *)notification {
+    NSDictionary *userInfo = [notification userInfo];
+    NSString *title = userInfo[kDelayedTitleSetterTitleKey];
+    if (title) {
+        self.title = title;
+    }
+}
+
+@end

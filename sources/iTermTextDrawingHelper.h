@@ -7,6 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "ITAddressBookMgr.h"
 #import "iTermCursor.h"
 #import "ScreenChar.h"
 #import "VT100GridTypes.h"
@@ -60,6 +61,8 @@
 - (NSData *)drawingHelperMatchesOnLine:(int)line;
 
 - (void)drawingHelperDidFindRunOfAnimatedCellsStartingAt:(VT100GridCoord)coord ofLength:(int)length;
+
+- (NSString *)drawingHelperLabelForDropTargetOnLine:(int)line;
 
 @end
 
@@ -173,6 +176,9 @@
 // Amount to blend background color over background image, 0-1.
 @property(nonatomic, assign) float blend;
 
+// Should transparency not affect background colors other than the default?
+@property(nonatomic, assign) BOOL transparencyAffectsOnlyDefaultBackgroundColor;
+
 // Should the cursor guide be shown?
 @property(nonatomic, assign) BOOL highlightCursorLine;
 
@@ -235,13 +241,24 @@
 @property(nonatomic, assign) BOOL drawMarkIndicators;
 
 // Use light font smoothing?
-@property(nonatomic) BOOL thinStrokes;
+@property(nonatomic, assign) iTermThinStrokesSetting thinStrokes;
+
+// Change the cursor to indicate that a search is being performed.
+@property(nonatomic, assign) BOOL showSearchingCursor;
+
+// Should drop targets be indicated?
+@property(nonatomic, assign) BOOL showDropTargets;
+
+// Line number that is being hovered over for drop
+@property(nonatomic, assign) int dropLine;
 
 // Updates self.blinkingFound.
 - (void)drawTextViewContentInRect:(NSRect)rect
                          rectsPtr:(const NSRect *)rectArray
                         rectCount:(NSInteger)rectCount;
-- (void)drawTimestamps;
+
+// Draw timestamps. Returns the width of the widest timestamp.
+- (CGFloat)drawTimestamps;
 
 #pragma mark - Testing Only
 

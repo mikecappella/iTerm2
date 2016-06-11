@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import "CharacterRun.h"
+#import "ITAddressBookMgr.h"
 #import "iTerm.h"
 #import "iTermColorMap.h"
 #import "iTermIndicatorsHelper.h"
@@ -17,6 +18,7 @@
 @class CRunStorage;
 @class iTermFindCursorView;
 @class iTermFindOnPageHelper;
+@class iTermQuickLookController;
 @class iTermSelection;
 @protocol iTermSemanticHistoryControllerDelegate;
 @class MovingAverage;
@@ -42,6 +44,23 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
     CHARTYPE_OTHER,       // Symbols, etc. Anything that doesn't fall into the other categories.
 };
 
+typedef NS_ENUM(NSInteger, PTYTextViewSelectionEndpoint) {
+    kPTYTextViewSelectionEndpointStart,
+    kPTYTextViewSelectionEndpointEnd
+};
+
+typedef NS_ENUM(NSInteger, PTYTextViewSelectionExtensionDirection) {
+    kPTYTextViewSelectionExtensionDirectionLeft,
+    kPTYTextViewSelectionExtensionDirectionRight
+};
+
+typedef NS_ENUM(NSInteger, PTYTextViewSelectionExtensionUnit) {
+    kPTYTextViewSelectionExtensionUnitCharacter,
+    kPTYTextViewSelectionExtensionUnitWord,
+    kPTYTextViewSelectionExtensionUnitLine,
+    kPTYTextViewSelectionExtensionUnitMark,
+};
+
 @protocol PTYTextViewDelegate <NSObject>
 
 - (BOOL)xtermMouseReporting;
@@ -54,17 +73,13 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
 // Contextual menu
 - (void)menuForEvent:(NSEvent *)theEvent menu:(NSMenu *)theMenu;
 - (void)pasteString:(NSString *)aString;
-- (BOOL)textViewCanPasteFile;
-- (void)textViewPasteFileWithBase64Encoding;
 - (void)paste:(id)sender;
 - (void)pasteOptions:(id)sender;
 - (void)textViewFontDidChange;
-- (void)textViewSizeDidChange;
 - (void)textViewDrawBackgroundImageInView:(NSView *)view
                                  viewRect:(NSRect)rect
                    blendDefaultBackground:(BOOL)blendDefaultBackground;
 - (BOOL)textViewHasBackgroundImage;
-- (PTYScrollView *)scrollview;
 - (void)sendEscapeSequence:(NSString *)text;
 - (void)sendHexCode:(NSString *)codes;
 - (void)sendText:(NSString *)text;
@@ -80,16 +95,16 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
 - (void)selectPaneRightInCurrentTerminal;
 - (void)selectPaneAboveInCurrentTerminal;
 - (void)selectPaneBelowInCurrentTerminal;
-- (void)writeTask:(NSData*)data;
+- (void)writeTask:(NSString *)string;
+- (void)writeStringWithLatin1Encoding:(NSString *)string;
 - (void)textViewDidBecomeFirstResponder;
-- (void)refreshAndStartTimerIfNeeded;
+- (void)refresh;
 - (BOOL)textViewIsActiveSession;
 - (BOOL)textViewSessionIsBroadcastingInput;
 - (BOOL)textViewIsMaximized;
 - (BOOL)textViewTabHasMaximizedPanel;
 - (void)textViewWillNeedUpdateForBlink;
 - (BOOL)textViewDelegateHandlesAllKeystrokes;
-- (BOOL)textViewInSameTabAsTextView:(PTYTextView *)other;
 - (void)textViewSplitVertically:(BOOL)vertically withProfileGuid:(NSString *)guid;
 - (void)textViewSelectNextTab;
 - (void)textViewSelectPreviousTab;
@@ -128,7 +143,9 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
                           deltaY:(CGFloat)deltaY;
 
 - (VT100GridAbsCoordRange)textViewRangeOfLastCommandOutput;
+- (VT100GridAbsCoordRange)textViewRangeOfCurrentCommand;
 - (BOOL)textViewCanSelectOutputOfLastCommand;
+- (BOOL)textViewCanSelectCurrentCommand;
 - (NSColor *)textViewCursorGuideColor;
 - (BOOL)textViewUseHFSPlusMapping;
 - (NSColor *)textViewBadgeColor;
@@ -141,6 +158,12 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
 - (BOOL)isRestartable;
 - (void)textViewToggleAnnotations;
 - (BOOL)textViewShouldAcceptKeyDownEvent:(NSEvent *)event;
+
+// We guess the user is trying to send arrow keys with the scroll wheel in alt screen.
+- (void)textViewThinksUserIsTryingToSendArrowKeysWithScrollWheel:(BOOL)trying;
+
+// Update the text view's frame needed.
+- (void)textViewResizeFrameIfNeeded;
 
 @end
 
@@ -177,7 +200,7 @@ typedef NS_ENUM(NSInteger, PTYCharType) {
 @property(nonatomic, assign) BOOL useBoldFont;
 
 // Draw text with light font smoothing?
-@property(nonatomic, assign) BOOL thinStrokes;
+@property(nonatomic, assign) iTermThinStrokesSetting thinStrokes;
 
 // Use a bright version of the text color for bold text?
 @property(nonatomic, assign) BOOL useBrightBold;
@@ -259,6 +282,14 @@ typedef void (^PTYTextViewDrawingHookBlock)(iTermTextDrawingHelper *);
 
 // For tests.
 @property(nonatomic, readonly) NSRect cursorFrame;
+
+// Change the cursor to indicate that a search is being performed.
+@property(nonatomic, assign) BOOL showSearchingCursor;
+
+@property(nonatomic, readonly) iTermQuickLookController *quickLookController;
+
+// Returns the desired height of this view that exactly fits its contents.
+@property(nonatomic, readonly) CGFloat desiredHeight;
 
 // Returns the size of a cell for a given font. hspace and vspace are multipliers and the width
 // and height.
@@ -358,7 +389,8 @@ typedef void (^PTYTextViewDrawingHookBlock)(iTermTextDrawingHelper *);
 // Saving/printing
 - (void)saveDocumentAs:(id)sender;
 - (void)print:(id)sender;
-- (void)printContent:(NSString *)aString;
+// aString is either an NSString or an NSAttributedString.
+- (void)printContent:(id)aString;
 
 // Begins a new search. You may need to call continueFind repeatedly after this.
 - (void)findString:(NSString*)aString
@@ -410,7 +442,7 @@ typedef void (^PTYTextViewDrawingHookBlock)(iTermTextDrawingHelper *);
 - (void)updateNoteViewFrames;
 
 // Show a visual highlight of a mark on the given line number.
-- (void)highlightMarkOnLine:(int)line;
+- (void)highlightMarkOnLine:(int)line hasErrorCode:(BOOL)hasErrorCode;
 
 - (IBAction)installShellIntegration:(id)sender;
 
@@ -454,6 +486,20 @@ typedef void (^PTYTextViewDrawingHookBlock)(iTermTextDrawingHelper *);
 
 // Menu for session title bar hamburger button
 - (NSMenu *)titleBarMenu;
+
+- (void)moveSelectionEndpoint:(PTYTextViewSelectionEndpoint)endpoint
+                  inDirection:(PTYTextViewSelectionExtensionDirection)direction
+                           by:(PTYTextViewSelectionExtensionUnit)unit;
+
+// For focus follows mouse. Allows a new split pane to become focused even though the mouse pointer
+// is elsewhere. Records the mouse position. Refuses first responder as long as the mouse doesn't
+// move.
+- (void)refuseFirstResponderAtCurrentMouseLocation;
+
+// Undoes -refuseFirstResponderAtCurrentMouseLocation.
+- (void)resetMouseLocationToRefuseFirstResponderAt;
+
+- (void)setTransparencyAffectsOnlyDefaultBackgroundColor:(BOOL)value;
 
 #pragma mark - Testing only
 

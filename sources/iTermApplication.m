@@ -31,6 +31,7 @@
 #import "iTermKeyBindingMgr.h"
 #import "iTermPreferences.h"
 #import "iTermShortcutInputView.h"
+#import "NSArray+iTerm.h"
 #import "NSTextField+iTerm.h"
 #import "PreferencePanel.h"
 #import "PseudoTerminal.h"
@@ -44,6 +45,12 @@
 - (void)dealloc {
     [_fakeCurrentEvent release];
     [super dealloc];
+}
+
++ (iTermApplication *)sharedApplication {
+    __kindof NSApplication *sharedApplication = [super sharedApplication];
+    assert([sharedApplication isKindOfClass:[iTermApplication class]]);
+    return sharedApplication;
 }
 
 - (BOOL)_eventUsesNavigationKeys:(NSEvent*)event {
@@ -206,6 +213,12 @@
     } else {
         return [super currentEvent];
     }
+}
+
+- (NSArray *)orderedTerminalWindows {
+    return [[self orderedWindows] filteredArrayUsingBlock:^BOOL(id anObject) {
+        return [anObject isKindOfClass:[PTYWindow class]];
+    }];
 }
 
 @end

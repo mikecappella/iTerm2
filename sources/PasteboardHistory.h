@@ -29,8 +29,8 @@
 
 
 #import <Cocoa/Cocoa.h>
+#import "iTermPopupWindowController.h"
 #import "PTYTextView.h"
-#import "Popup.h"
 #import "PopupEntry.h"
 #import "VT100Screen.h"
 
@@ -48,7 +48,7 @@
 
 + (instancetype)sharedInstance;
 - (instancetype)initWithMaxEntries:(int)maxEntries;
-- (NSArray*)entries;
+- (NSArray<PasteboardEntry *> *)entries;
 - (void)save:(NSString*)value;
 
 // Erases persistent history, but not in-memory.
@@ -62,7 +62,7 @@
 
 @end
 
-@interface PasteboardHistoryWindowController : Popup
+@interface PasteboardHistoryWindowController : iTermPopupWindowController
 
 - (void)pasteboardHistoryDidChange:(id)sender;
 - (void)copyFromHistory;

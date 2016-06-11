@@ -324,12 +324,11 @@ int AppendToComplexChar(int key, unichar codePoint);
 // new composite.
 void BeginComplexChar(screen_char_t *screenChar, unichar combiningChar, BOOL useHFSPlusMapping);
 
+// Place a complex char in a screen char.
+void SetComplexCharInScreenChar(screen_char_t *screenChar, NSString *theString, BOOL useHFSPlusMapping);
+
 // Create or lookup & return the code for a complex char.
 int GetOrSetComplexChar(NSString* str);
-
-// Returns true if the given character is a combining mark, per chapter 3 of
-// the Unicode 6.0 spec, D52.
-BOOL IsCombiningMark(UTF32Char c);
 
 // Translate a surrogate pair into a single utf-32 char.
 UTF32Char DecodeSurrogatePair(unichar high, unichar low);
@@ -384,6 +383,10 @@ void StringToScreenChars(NSString *s,
                          BOOL *foundDwc,
                          BOOL useHFSPlusMapping);
 
+// Copy attributes from fg and bg, and zero out other fields. Text attributes like bold, italic, etc.
+// come from fg.
+void InitializeScreenChar(screen_char_t *s, screen_char_t fg, screen_char_t bg);
+
 // Translates normal characters into graphics characters, as defined in charsets.h. Must not contain
 // complex characters.
 void ConvertCharsToGraphicsCharset(screen_char_t *s, int len);
@@ -394,8 +397,13 @@ BOOL StringContainsCombiningMark(NSString *s);
 // Allocates a new image code and sets in the return value. The image will be
 // displayed in the terminal with width x height cells. If preserveAspectRatio
 // is set then background-color bars will be added on the edges so the image is
-// not distorted.
-screen_char_t ImageCharForNewImage(NSString *name, int width, int height, BOOL preserveAspectRatio);
+// not distorted. Insets should be specified as a fraction of cell size (all inset values should be
+// in [0, 1] and will be multiplied by cell width and height before rendering.).
+screen_char_t ImageCharForNewImage(NSString *name,
+                                   int width,
+                                   int height,
+                                   BOOL preserveAspectRatio,
+                                   NSEdgeInsets insets);
 
 // Sets the row and column number in an image cell. Goes from 0 to width/height
 // as specified in the preceding call to ImageCharForNewImage.

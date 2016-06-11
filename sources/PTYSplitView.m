@@ -17,9 +17,11 @@
     iTermPreferencesTabStyle preferredStyle = [iTermPreferences intForKey:kPreferenceKeyTabStyle];
     switch (preferredStyle) {
         case TAB_STYLE_LIGHT:
+        case TAB_STYLE_LIGHT_HIGH_CONTRAST:
             return [NSColor lightGrayColor];
             break;
         case TAB_STYLE_DARK:
+        case TAB_STYLE_DARK_HIGH_CONTRAST:
             return [NSColor darkGrayColor];
             break;
     }
@@ -49,7 +51,7 @@
     NSArray *subviews = [self subviews];
     NSPoint locationInWindow = [theEvent locationInWindow];
     locationInWindow.y--;
-    NSPoint locationInView = [self convertPoint:locationInWindow toView:self];
+    NSPoint locationInView = [self convertPoint:locationInWindow fromView:nil];
     int x = 0;
     int y = 0;
     int bestDistance = -1;
@@ -72,17 +74,17 @@
         int mouseY = locationInView.y;
         int bestY = 0;
         y = 0;
-        for (int i = subviews.count - 1; i >= 0; i--) {
+        for (int i = 0; i < subviews.count - 1; i++) {
             float subviewHeight = [[subviews objectAtIndex:i] frame].size.height;
             y += subviewHeight;
             if (bestDistance < 0 || abs(y - mouseY) < bestDistance) {
                 bestDistance = abs(y - mouseY);
-                clickedOnSplitterIndex = i - 1;
+                clickedOnSplitterIndex = i;
                 bestY = y;
             }
             y += [self dividerThickness];
         }
-        y = self.frame.size.height - bestY;
+        y = bestY;
     }
 
     [[self delegate] splitView:self draggingWillBeginOfSplit:clickedOnSplitterIndex];

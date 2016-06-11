@@ -13,6 +13,8 @@
 #import "SessionView.h"
 #import "TmuxController.h"
 
+NSString *const iTermMovePaneDragType = @"iTermDragPanePBType";
+
 @implementation MovePaneController {
     // If set then moving pane; otherwise swapping.
     BOOL isMove_;
@@ -72,7 +74,7 @@
 }
 
 - (void)moveWindowBy:(NSPoint)point {
-    NSWindow *window = session_.tab.realParentWindow.window;
+    NSWindow *window = session_.delegate.realParentWindow.window;
     NSPoint origin = window.frame.origin;
     origin.x += point.x;
     origin.y += point.y;
@@ -81,19 +83,22 @@
     [window setFrameOrigin:origin];
 }
 
-- (void)moveSessionToNewWindow:(PTYSession *)movingSession atPoint:(NSPoint)point
-{
+- (void)moveSessionToNewWindow:(PTYSession *)movingSession atPoint:(NSPoint)point {
     if ([movingSession isTmuxClient]) {
         [[movingSession tmuxController] breakOutWindowPane:[movingSession tmuxPane]
                                                    toPoint:point];
         return;
     }
-    PTYTab *theTab = [movingSession tab];
-    NSWindowController<iTermWindowController> * term =
+    PTYTab *theTab = [movingSession.delegate.realParentWindow tabForSession:movingSession];
+    NSWindowController<iTermWindowController> *term =
         [[theTab realParentWindow] terminalDraggedFromAnotherWindowAtPoint:point];
 
     SessionView *oldView = [movingSession view];
     [oldView retain];
+
+    // Prevent -removeSession from freeing the session.
+    [[movingSession retain] autorelease];
+
     [theTab removeSession:movingSession];
     if ([[theTab sessions] count] == 0) {
         [[theTab realParentWindow] closeTab:theTab];
@@ -115,8 +120,8 @@
     SessionView *oldView = [session_ view];
     [oldView retain];
     PTYSession *movingSession = session_;
-    PTYTab *theTab = [movingSession tab];
-    [[movingSession tab] removeSession:movingSession];
+    PTYTab *theTab = [movingSession.delegate.realParentWindow tabForSession:movingSession];
+    [movingSession.delegate removeSession:movingSession];
     if ([[theTab sessions] count] == 0) {
         [[theTab realParentWindow] closeTab:theTab];
     }
@@ -146,8 +151,7 @@
 // It isn't called at all if a session is dragged into an existing tab bar.
 - (BOOL)dropInSession:(PTYSession *)dest
                  half:(SplitSessionHalf)half
-              atPoint:(NSPoint)point
-{
+              atPoint:(NSPoint)point {
     if ((dest && ![session_ isCompatibleWith:dest]) ||  // Would create hetero-tmuxual splits in tab
         dest == session_ ||  // move to self
         !session_) {         // no source (?)
@@ -182,30 +186,32 @@
         return YES;
     }
 
+    PTYTab *destinationTab = [dest.delegate.realParentWindow tabForSession:dest];
     if (isMove_) {
         PTYSession *movingSession = session_;
         BOOL isVertical = (half == kWestHalf || half == kEastHalf);
-        if (![[[dest tab] realParentWindow] canSplitPaneVertically:isVertical
-                                                      withBookmark:[movingSession profile]]) {
+        if (![[destinationTab realParentWindow] canSplitPaneVertically:isVertical
+                                                          withBookmark:[movingSession profile]]) {
             return NO;
         }
 
         SessionView *oldView = [movingSession view];
-        [oldView retain];
-        PTYTab *theTab = [movingSession tab];
-        [[movingSession tab] removeSession:movingSession];
+        [[oldView retain] autorelease];
+        [[movingSession retain] autorelease];
+        PTYTab *theTab = [movingSession.delegate.realParentWindow tabForSession:movingSession];
+        [theTab removeSession:movingSession];
         if ([[theTab sessions] count] == 0) {
             [[theTab realParentWindow] closeTab:theTab];
         }
-        [[[dest tab] realParentWindow] splitVertically:isVertical
-                                                before:(half == kNorthHalf || half == kWestHalf)
-                                         addingSession:movingSession
-                                         targetSession:dest
-                                          performSetup:NO];
-        [oldView release];
-        [[dest tab] fitSessionToCurrentViewSize:movingSession];
+
+        [[destinationTab realParentWindow] splitVertically:isVertical
+                                                    before:(half == kNorthHalf || half == kWestHalf)
+                                             addingSession:movingSession
+                                             targetSession:dest
+                                              performSetup:NO];
+        [destinationTab fitSessionToCurrentViewSize:movingSession];
     } else {
-        [[dest tab] swapSession:dest withSession:session_];
+        [destinationTab swapSession:dest withSession:session_];
     }
     return YES;
 }
@@ -223,10 +229,10 @@
     NSPasteboard *pboard;
 
     pboard = [NSPasteboard pasteboardWithName:NSDragPboard];
-    [pboard declareTypes:[NSArray arrayWithObjects:@"iTermDragPanePBType", nil] owner: nil];
-    [pboard setString:@"" forType:@"iTermDragPanePBType"];
+    [pboard declareTypes:@[ iTermMovePaneDragType ] owner: nil];
+    [pboard setString:@"" forType:iTermMovePaneDragType];
 
-    PTYTab *theTab = [session tab];
+    PTYTab *theTab = [session.delegate.realParentWindow tabForSession:session];
     NSRect rect = [[[session view] superview] convertRect:[[session view] frame] toView:nil];
     SessionView *source = [session view];
     [source retain];
@@ -253,10 +259,8 @@
 
 #pragma mark Delegate
 
-- (void)didSelectDestinationSession:(PTYSession *)dest
-                               half:(SplitSessionHalf)half
-{
-    [self dropInSession:dest half:half atPoint:NSZeroPoint];
+- (void)didSelectDestinationSession:(PTYSession *)session half:(SplitSessionHalf)half {
+    [self dropInSession:session half:half atPoint:NSZeroPoint];
     [self exitMovePaneMode];
 }
 

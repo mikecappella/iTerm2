@@ -14,13 +14,10 @@
 
 typedef NS_ENUM(NSInteger, iTermTabBarFlashState) {
     kFlashOff,
-    kFlashFadingIn,
     kFlashHolding,  // Regular delay
     kFlashExtending,  // Staying on because cmd pressed
     kFlashFadingOut,
 };
-
-static const NSTimeInterval kAnimationDuration = 0.25;
 
 @interface iTermTabBarControlView ()
 @property(nonatomic, assign) iTermTabBarFlashState flashState;
@@ -55,9 +52,6 @@ static const NSTimeInterval kAnimationDuration = 0.25;
         case kFlashOff:
             break;
 
-        case kFlashFadingIn:
-            break;
-
         case kFlashHolding:
             break;
 
@@ -86,19 +80,9 @@ static const NSTimeInterval kAnimationDuration = 0.25;
 
 - (void)fadeIn {
     DLog(@"fade in");
-    [self retain];
-    [NSView animateWithDuration:kAnimationDuration
-                     animations:^{
-                         self.flashState = kFlashFadingIn;
-                         [_itermTabBarDelegate iTermTabBarWillBeginFlash];
-                         [self.animator setAlphaValue:1];
-                     }
-                     completion:^(BOOL finished) {
-                         if (self.flashState == kFlashFadingIn) {
-                             self.flashState = kFlashHolding;
-                         }
-                         [self release];
-                     }];
+    self.flashState = kFlashHolding;
+    [_itermTabBarDelegate iTermTabBarWillBeginFlash];
+    self.alphaValue = 1;
 }
 
 - (void)scheduleFadeOutAfterDelay {
@@ -106,7 +90,7 @@ static const NSTimeInterval kAnimationDuration = 0.25;
     // Schedule a fade out. This can be canceled.
     [self retain];
     __block BOOL aborted = NO;
-    _flashDelayedPerform = [NSView animateWithDuration:kAnimationDuration
+    _flashDelayedPerform = [NSView animateWithDuration:[iTermAdvancedSettingsModel tabFlashAnimationDuration]
                                                  delay:[iTermAdvancedSettingsModel tabAutoShowHoldTime]
                                             animations:^{
                                                 if (!_cmdPressed) {
@@ -152,7 +136,7 @@ static const NSTimeInterval kAnimationDuration = 0.25;
     _flashDelayedPerform = nil;
 
     [self retain];
-    [NSView animateWithDuration:kAnimationDuration
+    [NSView animateWithDuration:[iTermAdvancedSettingsModel tabFlashAnimationDuration]
                      animations:^{
                          self.flashState = kFlashFadingOut;
                          [self.animator setAlphaValue:0];
@@ -184,7 +168,6 @@ static const NSTimeInterval kAnimationDuration = 0.25;
                 [self scheduleFadeOutAfterDelay];
                 break;
 
-            case kFlashFadingIn:
             case kFlashExtending:
                 break;
         }
@@ -193,7 +176,6 @@ static const NSTimeInterval kAnimationDuration = 0.25;
             case kFlashOff:
                 break;
 
-            case kFlashFadingIn:
             case kFlashHolding:
             case kFlashExtending:
                 [self fadeOut];

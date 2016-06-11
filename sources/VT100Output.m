@@ -425,6 +425,7 @@ typedef enum {
     static char buf[64]; // This should be enough for all formats.
     switch (self.mouseFormat) {
         case MOUSE_FORMAT_XTERM_EXT:
+            // TODO: This doesn' thandle positions greater than 223 correctly. It should use UTF-8.
             snprintf(buf, sizeof(buf), "\033[M%c%lc%lc",
                      (wint_t) (32 + button),
                      (wint_t) (32 + x),
@@ -528,6 +529,14 @@ typedef enum {
     char *buf = [self mouseReport:(32 + cb) atX:(coord.x + 1) Y:(coord.y + 1)];
     
     return [NSData dataWithBytes: buf length: strlen(buf)];
+}
+
+- (NSData *)reportiTerm2Version {
+    // We uppercase the string to ensure it does not contain a "n".
+    // The [ must never be followed by a 0 (see the isiterm2.sh script for justification).
+    NSString *version = [NSString stringWithFormat:@"%c[ITERM2 %@n", ESC,
+                         [[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"] uppercaseString]];
+    return [version dataUsingEncoding:NSUTF8StringEncoding];
 }
 
 - (NSData *)reportActivePositionWithX:(int)x Y:(int)y withQuestion:(BOOL)q

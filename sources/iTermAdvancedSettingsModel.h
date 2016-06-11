@@ -15,11 +15,12 @@
 + (int)minCompactTabWidth;
 + (int)optimumTabWidth;
 + (BOOL)alternateMouseScroll;
++ (NSString *)alternateMouseScrollStringForUp;
++ (NSString *)alternateMouseScrollStringForDown;
 + (BOOL)traditionalVisualBell;
 + (double)hotkeyTermAnimationDuration;
 + (BOOL)hotkeyWindowFloatsAboveOtherWindows;
 + (NSString *)searchCommand;
-+ (double)antiIdleTimerPeriod;
 + (BOOL)dockIconTogglesWindow;
 + (double)timeBetweenBlinks;
 + (BOOL)neverWarnAboutMeta;
@@ -99,6 +100,11 @@
 + (BOOL)killJobsInServersOnQuit;
 
 + (BOOL)noSyncDoNotWarnBeforeMultilinePaste;
++ (NSString *)noSyncDoNotWarnBeforeMultilinePasteUserDefaultsKey;
++ (void)setNoSyncDoNotWarnBeforeMultilinePaste:(BOOL)value;
++ (BOOL)noSyncDoNotWarnBeforePastingOneLineEndingInNewlineAtShellPrompt;
++ (NSString *)noSyncDoNotWarnBeforePastingOneLineEndingInNewlineAtShellPromptUserDefaultsKey;
++ (void)setNoSyncDoNotWarnBeforePastingOneLineEndingInNewlineAtShellPrompt:(BOOL)value;
 
 + (BOOL)noSyncTipsDisabled;
 + (int)numberOfLinesForAccessibility;
@@ -117,5 +123,31 @@
 + (BOOL)noSyncReplaceProfileWarning;
 + (BOOL)requireCmdForDraggingText;
 + (double)tabAutoShowHoldTime;
++ (BOOL)doubleReportScrollWheel;
++ (BOOL)stealKeyFocus;
++ (BOOL)allowDragOfTabIntoNewWindow;
++ (BOOL)typingClearsSelection;
++ (BOOL)focusReportingEnabled;
+
++ (BOOL)hideFromDockAndAppSwitcher;
++ (BOOL)hotkeyWindowIgnoresSpotlight;
++ (BOOL)tabTitlesUseSmartTruncation;
++ (BOOL)serializeOpeningMultipleFullScreenWindows;
++ (BOOL)disablePotentiallyInsecureEscapeSequences;
++ (int)maxSemanticHistoryPrefixOrSuffix;
++ (BOOL)performDictionaryLookupOnQuickLook;
++ (NSString *)pathsToIgnore;
++ (BOOL)jiggleTTYSizeOnClearBuffer;
++ (BOOL)cmdClickWhenInactiveInvokesSemanticHistory;
++ (BOOL)suppressRestartAnnouncement;
++ (void)setSuppressRestartAnnouncement:(BOOL)value;
++ (BOOL)useAdaptiveFrameRate;
++ (int)adaptiveFrameRateThroughputThreshold;
++ (BOOL)includePasteHistoryInAdvancedPaste;
++ (BOOL)experimentalKeyHandling;
++ (BOOL)hideStuckTooltips;
++ (BOOL)indicateBellsInDockBadgeLabel;
++ (double)tabFlashAnimationDuration;
++ (NSString *)downloadsDirectory;
 
 @end

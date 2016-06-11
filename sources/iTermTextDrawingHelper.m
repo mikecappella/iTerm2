@@ -23,6 +23,8 @@
 #import "iTermTextExtractor.h"
 #import "MovingAverage.h"
 #import "NSColor+iTerm.h"
+#import "NSStringITerm.h"
+#import "RegexKitLite.h"
 #import "VT100ScreenMark.h"
 #import "VT100Terminal.h"  // TODO: Remove this dependency
 
@@ -37,10 +39,6 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 @implementation iTermTextDrawingHelper {
     // Current font. Only valid for the duration of a single drawing context.
     NSFont *_selectedFont;
-
-    // Graphics for marks.
-    NSImage *_markImage;
-    NSImage *_markErrImage;
 
     // Last position of blinking cursor
     VT100GridCoord _oldCursorPosition;
@@ -70,8 +68,6 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _markImage = [[NSImage imageNamed:@"mark"] retain];
-        _markErrImage = [[NSImage imageNamed:@"mark_err"] retain];
         if ([iTermAdvancedSettingsModel logDrawingPerformance]) {
             NSLog(@"** Drawing performance timing enabled **");
             _drawRectDuration = [[MovingAverage alloc] init];
@@ -92,8 +88,6 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     [_colorMap release];
 
     [_selectedFont release];
-    [_markImage release];
-    [_markErrImage release];
     [_drawRectDuration release];
     [_drawRectInterval release];
 
@@ -125,6 +119,10 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
         [self clipAndDrawRect:rectArray[i]];
     }
     [self drawCursor];
+
+    if (_showDropTargets) {
+        [self drawDropTargets];
+    }
 
     if (_drawRectDuration) {
         [self stopTiming];
@@ -306,6 +304,12 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     } else {
         const BOOL defaultBackground = (run->bgColor == ALTSEM_DEFAULT &&
                                         run->bgColorMode == ColorModeAlternate);
+        // When set in preferences, applies alpha only to the defaultBackground
+        // color, useful for keeping Powerline segments opacity(background)
+        // consistent with their seperator glyphs opacity(foreground).
+        if (_transparencyAffectsOnlyDefaultBackgroundColor && !defaultBackground) {
+            alpha = 1;
+        }
         if (_reverseVideo && defaultBackground) {
             // Reverse video is only applied to default background-
             // color chars.
@@ -351,13 +355,24 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
         // evenly in the available space.
         NSRect visibleRect = _visibleRect;
         excessRect.origin.x = 0;
-        excessRect.origin.y = visibleRect.origin.y + visibleRect.size.height - _excess;
+        excessRect.origin.y = NSMaxY(visibleRect) - _excess;
         excessRect.size.width = _scrollViewContentSize.width;
         excessRect.size.height = _excess;
     }
 
     [self.delegate drawingHelperDrawBackgroundImageInRect:excessRect
                                    blendDefaultBackground:YES];
+    
+    if (_debug) {
+        [[NSColor blueColor] set];
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        [path moveToPoint:excessRect.origin];
+        [path lineToPoint:NSMakePoint(NSMaxX(excessRect), NSMaxY(excessRect))];
+        [path stroke];
+        
+        NSFrameRect(excessRect);
+    }
+    
     if (_showStripes) {
         [self drawStripesInRect:excessRect];
     }
@@ -450,13 +465,35 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 - (void)drawMarkIfNeededOnLine:(int)line leftMarginRect:(NSRect)leftMargin {
     VT100ScreenMark *mark = [self.delegate drawingHelperMarkOnLine:line];
     if (mark.isVisible && self.drawMarkIndicators) {
-        NSImage *image = mark.code ? _markErrImage : _markImage;
-        CGFloat offset = (_cellSize.height - _markImage.size.height) / 2.0;
-        [image drawAtPoint:NSMakePoint(leftMargin.origin.x,
-                                       leftMargin.origin.y + offset)
-                  fromRect:NSMakeRect(0, 0, _markImage.size.width, _markImage.size.height)
-                 operation:NSCompositeSourceOver
-                  fraction:1.0];
+        const CGFloat verticalSpacing = _cellSize.height - _cellSizeWithoutSpacing.height;
+        CGRect rect = NSMakeRect(leftMargin.origin.x,
+                                 leftMargin.origin.y + verticalSpacing,
+                                 MARGIN,
+                                 _cellSizeWithoutSpacing.height);
+        const CGFloat kMaxHeight = 15;
+        const CGFloat kMinMargin = 3;
+        const CGFloat kMargin = MAX(kMinMargin, (_cellSizeWithoutSpacing.height - kMaxHeight) / 2.0);
+        NSPoint top = NSMakePoint(NSMinX(rect), rect.origin.y + kMargin);
+        NSPoint right = NSMakePoint(NSMaxX(rect), NSMidY(rect));
+        NSPoint bottom = NSMakePoint(NSMinX(rect), NSMaxY(rect) - kMargin);
+
+        [[NSColor blackColor] set];
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        [path moveToPoint:NSMakePoint(bottom.x, bottom.y)];
+        [path lineToPoint:NSMakePoint(right.x, right.y)];
+        [path setLineWidth:1.0];
+        [path stroke];
+
+        if (mark.code) {
+            [[NSColor colorWithCalibratedRed:248.0 / 255.0 green:90.0 / 255.0 blue:90.0 / 255.0 alpha:1] set];
+        } else {
+            [[NSColor colorWithCalibratedRed:120.0 / 255.0 green:178.0 / 255.0 blue:255.0 / 255.0 alpha:1] set];
+        }
+        [path moveToPoint:top];
+        [path lineToPoint:right];
+        [path lineToPoint:bottom];
+        [path lineToPoint:top];
+        [path fill];
     }
 }
 
@@ -479,24 +516,32 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     }
 }
 
-- (void)drawTimestamps {
+- (CGFloat)drawTimestamps {
     [self updateCachedMetrics];
 
     CGContextRef ctx = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
     if (!self.isRetina) {
         CGContextSetShouldSmoothFonts(ctx, NO);
     }
+    NSString *previous = nil;
+    CGFloat width = 0;
     for (int y = _scrollViewDocumentVisibleRect.origin.y / _cellSize.height;
          y < NSMaxY(_scrollViewDocumentVisibleRect) / _cellSize.height && y < _numberOfLines;
          y++) {
-        [self drawTimestampForLine:y];
+        CGFloat thisWidth = 0;
+        previous = [self drawTimestampForLine:y previousTimestamp:previous width:&thisWidth];
+        width = MAX(thisWidth, width);
     }
     if (!self.isRetina) {
         CGContextSetShouldSmoothFonts(ctx, YES);
     }
+    
+    return width;
 }
 
-- (void)drawTimestampForLine:(int)line {
+- (NSString *)drawTimestampForLine:(int)line
+                 previousTimestamp:(NSString *)previousTimestamp
+                             width:(CGFloat *)widthPtr {
     NSDate *timestamp = [_delegate drawingHelperTimestampForLine:line];
     NSDateFormatter *fmt = [[[NSDateFormatter alloc] init] autorelease];
     const NSTimeInterval day = -86400;
@@ -504,23 +549,22 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     if (timeDelta < day * 180) {
         // More than 180 days ago: include year
         // I tried using 365 but it was pretty confusing to see tomorrow's date.
-        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"yyyyMMMd hh:mm:ss"
+        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"yyyyMMMd jj:mm:ss"
                                                            options:0
                                                             locale:[NSLocale currentLocale]]];
     } else if (timeDelta < day * 6) {
         // 6 days to 180 days ago: include date without year
-        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"MMMd hh:mm:ss"
+        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"MMMd jj:mm:ss"
                                                            options:0
                                                             locale:[NSLocale currentLocale]]];
     } else if (timeDelta < day) {
         // 1 day to 6 days ago: include day of week
-        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"EEE hh:mm:ss"
+        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"EEE jj:mm:ss"
                                                            options:0
                                                             locale:[NSLocale currentLocale]]];
-
     } else {
         // In last 24 hours, just show time
-        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"hh:mm:ss"
+        [fmt setDateFormat:[NSDateFormatter dateFormatFromTemplate:@"jj:mm:ss"
                                                            options:0
                                                             locale:[NSLocale currentLocale]]];
     }
@@ -528,12 +572,15 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     if (self.useTestingTimezone) {
         fmt.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
     }
-    NSString *s = [fmt stringFromDate:timestamp];
+    NSString *theTimestamp = [fmt stringFromDate:timestamp];
     if (!timestamp || ![timestamp timeIntervalSinceReferenceDate]) {
-        s = @"";
+        theTimestamp = @"";
     }
+    NSString *s = theTimestamp;
+    BOOL repeat = [theTimestamp isEqualToString:previousTimestamp];
 
-    NSSize size = [s sizeWithAttributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:10] }];
+    NSString *widest = [s stringByReplacingOccurrencesOfRegex:@"[\\d\\p{Alphabetic}]" withString:@"M"];
+    NSSize size = [widest sizeWithAttributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:10] }];
     int w = size.width + MARGIN;
     int x = MAX(0, _frame.size.width - w);
     CGFloat y = line * _cellSize.height;
@@ -548,7 +595,7 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
         shadowColor = [NSColor blackColor];
     }
 
-    const CGFloat alpha = self.isRetina ? 0.75 : 0.9;
+    const CGFloat alpha = 0.9;
     NSGradient *gradient =
         [[[NSGradient alloc] initWithStartingColor:[bgColor colorWithAlphaComponent:0]
                                        endingColor:[bgColor colorWithAlphaComponent:alpha]] autorelease];
@@ -566,15 +613,28 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 
     NSDictionary *attributes;
     if (self.isRetina) {
-        attributes = @{ NSFontAttributeName: [NSFont systemFontOfSize:10],
+        attributes = @{ NSFontAttributeName: [NSFont userFixedPitchFontOfSize:10],
                         NSForegroundColorAttributeName: fgColor,
                         NSShadowAttributeName: shadow };
     } else {
-        attributes = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize:10],
+        NSFont *font = [NSFont userFixedPitchFontOfSize:10];    
+        attributes = @{ NSFontAttributeName: [[NSFontManager sharedFontManager] fontWithFamily:font.familyName
+                                                                                        traits:NSBoldFontMask
+                                                                                        weight:0
+                                                                                          size:font.pointSize],
                         NSForegroundColorAttributeName: fgColor };
     }
     CGFloat offset = (_cellSize.height - size.height) / 2;
-    [s drawAtPoint:NSMakePoint(x, y + offset) withAttributes:attributes];
+    if (s.length && repeat) {
+        [fgColor set];
+        CGFloat center = x + 10;
+        NSRectFill(NSMakeRect(center - 1, y, 1, _cellSize.height));
+        NSRectFill(NSMakeRect(center + 1, y, 1, _cellSize.height));
+    } else {
+        [s drawAtPoint:NSMakePoint(x, y + offset) withAttributes:attributes];
+    }
+    *widthPtr = w;
+    return theTimestamp;
 }
 
 - (NSSize)drawBadgeInRect:(NSRect)rect {
@@ -607,6 +667,80 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     imageSize.width += kBadgeMargin + [iTermAdvancedSettingsModel badgeRightMargin];
 
     return imageSize;
+}
+
+#pragma mark - Drawing: Drop targets
+
+- (void)drawDropTargets {
+    NSColor *scrimColor;
+    NSColor *borderColor;
+    NSColor *labelColor;
+    NSColor *outlineColor;
+    
+    if ([[self defaultBackgroundColor] isDark]) {
+        outlineColor = [NSColor whiteColor];
+        scrimColor = [NSColor whiteColor];
+        borderColor = [NSColor lightGrayColor];
+        labelColor = [NSColor blackColor];
+    } else {
+        outlineColor = [NSColor blackColor];
+        scrimColor = [NSColor blackColor];
+        borderColor = [NSColor darkGrayColor];
+        labelColor = [NSColor whiteColor];
+    }
+    scrimColor = [scrimColor colorWithAlphaComponent:0.6];
+
+    NSDictionary *attributes = @{ NSForegroundColorAttributeName: labelColor,
+                                  NSStrokeWidthAttributeName: @-4,
+                                  NSStrokeColorAttributeName: outlineColor };
+    
+    [self enumerateDropTargets:^(NSString *label, NSRange range) {
+        NSRect rect = NSMakeRect(0,
+                                 range.location * _cellSize.height,
+                                 _scrollViewDocumentVisibleRect.size.width,
+                                 _cellSize.height * range.length);
+        
+        if (NSLocationInRange(_dropLine, range)) {
+            [[[NSColor selectedControlColor] colorWithAlphaComponent:0.7] set];
+        } else {
+            [scrimColor set];
+        }
+        NSRectFillUsingOperation(rect, NSCompositeSourceOver);
+        
+        [borderColor set];
+        NSFrameRect(rect);
+        
+        [label drawInRect:rect withAttributes:[label attributesUsingFont:[NSFont boldSystemFontOfSize:8]
+                                                             fittingSize:rect.size
+                                                              attributes:attributes]];
+    }];
+}
+
+- (void)enumerateDropTargets:(void (^)(NSString *, NSRange))block {
+    NSRect rect = _scrollViewDocumentVisibleRect;
+    VT100GridCoordRange coordRange = [self drawableCoordRangeForRect:rect];
+    CGFloat y = coordRange.start.y * _cellSize.height;
+    NSMutableArray *labels = [NSMutableArray array];
+    NSMutableArray *lineRanges = [NSMutableArray array];
+    int firstLine = coordRange.start.y;
+    for (int line = coordRange.start.y; line <= coordRange.end.y; line++, y += _cellSize.height) {
+        NSString *label = [_delegate drawingHelperLabelForDropTargetOnLine:line];
+        if (!label) {
+            continue;
+        }
+        NSString *previousLabel = labels.lastObject;
+        if ([label isEqualToString:previousLabel]) {
+            [labels removeLastObject];
+            [lineRanges removeLastObject];
+        } else {
+            firstLine = line;
+        }
+        [labels addObject:label];
+        [lineRanges addObject:[NSValue valueWithRange:NSMakeRange(firstLine, line - firstLine + 1)]];
+    }
+    for (NSInteger i = 0; i < labels.count; i++) {
+        block(labels[i], [lineRanges[i] rangeValue]);
+    }
 }
 
 #pragma mark - Drawing: Text
@@ -656,12 +790,26 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
     }
 }
 
+- (BOOL)useThinStrokes {
+    switch (self.thinStrokes) {
+        case iTermThinStrokesSettingAlways:
+            return YES;
+            
+        case iTermThinStrokesSettingNever:
+            return NO;
+            
+        case iTermThinStrokesSettingRetinaOnly:
+            return _isRetina;
+    }
+}
+
 - (void)drawRunsAt:(NSPoint)initialPoint
                run:(CRun *)run
            storage:(CRunStorage *)storage
            context:(CGContextRef)ctx {
     int savedFontSmoothingStyle = 0;
-    if (_thinStrokes) {
+    BOOL useThinStrokes = [self useThinStrokes];
+    if (useThinStrokes) {
         // This seems to be available at least on 10.8 and later. The only reference to it is in
         // WebKit. This causes text to render just a little lighter, which looks nicer.
         savedFontSmoothingStyle = CGContextGetFontSmoothingStyle(ctx);
@@ -674,7 +822,7 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
         run = run->next;
     }
 
-    if (_thinStrokes) {
+    if (useThinStrokes) {
         CGContextSetFontSmoothingStyle(ctx, savedFontSmoothingStyle);
     }
 }
@@ -717,6 +865,9 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
                           at:NSMakePoint(initialPoint.x + currentRun->x, initialPoint.y)];
     }
 
+    // Leaving anti-aliasing off causes the underline to be too thick (issue 4438).
+    CGContextSetShouldAntialias(ctx, YES);
+
     // Draw underline
     if (currentRun->attrs.underline) {
         [self drawUnderlineOfColor:currentRun->attrs.color
@@ -731,13 +882,17 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
                         font:(NSFont *)font
                        width:(CGFloat)runWidth {
     [color set];
-    NSRectFill(NSMakeRect(startPoint.x,
-                          (startPoint.y +
-                              _cellSize.height +
-                              font.descender -
-                              font.underlinePosition),
-                          runWidth,
-                          font.underlineThickness));
+    NSBezierPath *path = [NSBezierPath bezierPath];
+
+    NSPoint origin = NSMakePoint(startPoint.x,
+                                 startPoint.y +
+                                     _cellSize.height +
+                                     font.descender -
+                                     font.underlinePosition);
+    [path moveToPoint:origin];
+    [path lineToPoint:NSMakePoint(origin.x + runWidth, origin.y)];
+    [path setLineWidth:font.underlineThickness];
+    [path stroke];
 }
 
 // Note: caller must nil out _selectedFont after the graphics context becomes invalid.
@@ -792,9 +947,7 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 
 - (void)drawImageCellInRun:(CRun *)run atPoint:(NSPoint)point {
     iTermImageInfo *imageInfo = GetImageInfo(run->attrs.imageCode);
-    NSImage *image =
-        [imageInfo imageEmbeddedInRegionOfSize:NSMakeSize(_cellSize.width * imageInfo.size.width,
-                                                          _cellSize.height * imageInfo.size.height)];
+    NSImage *image = [imageInfo imageWithCellSize:_cellSize];
     NSSize chunkSize = NSMakeSize(image.size.width / imageInfo.size.width,
                                   image.size.height / imageInfo.size.height);
 
@@ -993,8 +1146,8 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
         // High-quality but slow rendering, needed especially for multiple combining marks.
         [self drawStringWithCombiningMarksInRun:complexRun at:pos];
     } else {
-        // Faster (not fast, but faster) than drawStringWithCombiningMarksInRun. AFAICT this is only
-        // used for surrogate pairs, so it's a candidate for deletion.
+        // Faster (not fast, but faster) than drawStringWithCombiningMarksInRun. This is used for
+        // surrogate pairs and when drawing a simple run fails because a glyph couldn't be found.
         [self drawAttributedStringInRun:complexRun at:pos];
     }
 }
@@ -1184,6 +1337,27 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
                      focused:((_isInKeyWindow && _textViewIsActiveSession) || _shouldDrawFilledInCursor)
                        coord:_cursorCoord
                   cellHeight:_cellSize.height];
+        if (_showSearchingCursor) {
+            NSImage *image = [NSImage imageNamed:@"SearchCursor"];
+            if (image) {
+                NSRect imageRect = rect;
+                CGFloat aspectRatio = image.size.height / image.size.width;
+                imageRect.size.height = imageRect.size.width * aspectRatio;
+                if (imageRect.size.height > rect.size.height) {
+                    imageRect.size.height = rect.size.height;
+                    imageRect.size.width = rect.size.height / aspectRatio;
+                }
+                imageRect.origin.y += (rect.size.height - imageRect.size.height) / 2;
+                imageRect.origin.x += (rect.size.width - imageRect.size.width) / 2;
+
+                [image drawInRect:imageRect
+                         fromRect:NSZeroRect
+                        operation:NSCompositeSourceOver
+                         fraction:1
+                   respectFlipped:YES
+                            hints:nil];
+            }
+        }
     }
 
     _oldCursorPosition = _cursorCoord;

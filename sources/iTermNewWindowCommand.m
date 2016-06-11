@@ -40,9 +40,10 @@
                                                      withURL:nil
                                                     isHotkey:NO
                                                      makeKey:YES
+                                                 canActivate:YES
                                                      command:command
                                                        block:nil];
-        return session.tab.realParentWindow.window;
+        return session.delegate.realParentWindow.window;
     }
     return nil;
 }

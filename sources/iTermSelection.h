@@ -153,6 +153,9 @@ typedef NS_ENUM(NSInteger, iTermSelectionMode) {
 // Add a range to the set of selections.
 - (void)addSubSelection:(iTermSubSelection *)sub;
 
+// This is much faster than repeated calls to addSubSelection:.
+- (void)addSubSelections:(NSArray<iTermSubSelection *> *)subSelectionArray;
+
 // Returns the indexes of characters selected on a given line.
 - (NSIndexSet *)selectedIndexesOnLine:(int)line;
 
@@ -176,5 +179,8 @@ typedef NS_ENUM(NSInteger, iTermSelectionMode) {
 
 // Serialized.
 - (NSDictionary *)dictionaryValueWithYOffset:(int)yOffset;
+
+// Utility methods
+- (BOOL)coord:(VT100GridCoord)a isBeforeCoord:(VT100GridCoord)b;
 
 @end

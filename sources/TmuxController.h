@@ -53,7 +53,8 @@ extern NSString *const kTmuxControllerSessionWasRenamed;
 - (void)hideWindow:(int)windowId;
 
 - (void)setLayoutInTab:(PTYTab *)tab
-                toLayout:(NSString *)layout;
+              toLayout:(NSString *)layout
+                zoomed:(NSNumber *)zoomed;
 - (void)sessionChangedTo:(NSString *)newSessionName sessionId:(int)sessionid;
 - (void)sessionsChanged;
 - (void)session:(int)sessionId renamedTo:(NSString *)newName;
@@ -74,6 +75,10 @@ extern NSString *const kTmuxControllerSessionWasRenamed;
 - (BOOL)windowDidResize:(NSWindowController<iTermWindowController> *)term;
 - (void)fitLayoutToWindows;
 - (void)validateOptions;
+
+// Issue tmux commands to infer bounds on the version.
+- (void)guessVersion;
+
 - (void)setClientSize:(NSSize)size;
 - (void)windowPane:(int)wp
          resizedBy:(int)amount

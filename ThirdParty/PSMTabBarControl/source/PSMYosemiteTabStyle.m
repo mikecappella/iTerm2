@@ -9,9 +9,47 @@
 #import "PSMYosemiteTabStyle.h"
 #import "PSMTabBarCell.h"
 #import "PSMTabBarControl.h"
+#import <objc/runtime.h>
 
 #define kPSMMetalObjectCounterRadius 7.0
 #define kPSMMetalCounterMinWidth 20
+static const CGFloat kPSMTabBarCellBaselineOffset = 14.5;
+
+@interface PSMTabBarCell(PSMYosemiteTabStyle)
+
+@property(nonatomic) NSAttributedString *previousAttributedString;
+@property(nonatomic) CGFloat previousWidthOfAttributedString;
+
+@end
+
+@implementation PSMTabBarCell(PSMYosemiteTabStyle)
+
+- (NSMutableDictionary *)psm_yosemiteAssociatedDictionary {
+    NSMutableDictionary *dictionary = objc_getAssociatedObject(self, _cmd);
+    if (!dictionary) {
+        dictionary = [NSMutableDictionary dictionary];
+        objc_setAssociatedObject(self, _cmd, dictionary, OBJC_ASSOCIATION_RETAIN);
+    }
+    return dictionary;
+}
+
+- (NSAttributedString *)previousAttributedString {
+    return self.psm_yosemiteAssociatedDictionary[@"attributedString"];
+}
+
+- (void)setPreviousAttributedString:(NSAttributedString *)previousAttributedString {
+    self.psm_yosemiteAssociatedDictionary[@"attributedString"] = [[previousAttributedString copy] autorelease];
+}
+
+- (CGFloat)previousWidthOfAttributedString {
+    return [self.psm_yosemiteAssociatedDictionary[@"attributedStringWidth"] doubleValue];
+}
+
+- (void)setPreviousWidthOfAttributedString:(CGFloat)previousWidthOfAttributedString {
+    self.psm_yosemiteAssociatedDictionary[@"attributedStringWidth"] = @(previousWidthOfAttributedString);
+}
+
+@end
 
 @implementation PSMYosemiteTabStyle {
     NSImage *_closeButton;
@@ -23,8 +61,8 @@
 
     NSDictionary *_objectCountStringAttributes;
 
-    PSMTabBarOrientation orientation;
-    PSMTabBarControl *tabBar;
+    PSMTabBarOrientation _orientation;
+    PSMTabBarControl *_tabBar;
 }
 
 - (NSString *)name {
@@ -155,14 +193,19 @@
 - (NSRect)indicatorRectForTabCell:(PSMTabBarCell *)cell {
     NSRect cellFrame = [cell frame];
 
-    if ([[cell indicator] isHidden]) {
-        return NSZeroRect;
+    CGFloat minX;
+    if ([cell count]) {
+        // Indicator to the left of the tab number
+        NSRect objectCounterRect = [self objectCounterRectForTabCell:cell];
+        minX = NSMinX(objectCounterRect);
+    } else {
+        // Indicator on the right edge of the tab.
+        minX = NSMaxX(cellFrame) - kSPMTabBarCellInternalXMargin;
     }
-
     NSRect result;
     result.size = NSMakeSize(kPSMTabBarIndicatorWidth, kPSMTabBarIndicatorWidth);
-    result.origin.x = cellFrame.origin.x + cellFrame.size.width - kSPMTabBarCellInternalXMargin - kPSMTabBarIndicatorWidth;
-    result.origin.y = cellFrame.origin.y + kSPMTabBarCellInternalYMargin - 0.5;
+    result.origin.x = minX - kPSMTabBarCellIconPadding - kPSMTabBarIndicatorWidth;
+    result.origin.y = cellFrame.origin.y + kSPMTabBarCellInternalYMargin;
 
     return result;
 }
@@ -184,10 +227,6 @@
     result.size = NSMakeSize(countWidth, 2 * kPSMMetalObjectCounterRadius); // temp
     result.origin.x = cellFrame.origin.x + cellFrame.size.width - kSPMTabBarCellInternalXMargin - result.size.width;
     result.origin.y = cellFrame.origin.y + kSPMTabBarCellInternalYMargin;
-
-    if (![[cell indicator] isHidden]) {
-        result.origin.x -= kPSMTabBarIndicatorWidth + kPSMTabBarCellPadding;
-    }
 
     return result;
 }
@@ -233,9 +272,21 @@
                 [self widthOfRightMatterInCell:cell]);
 }
 
+- (CGFloat)widthOfAttributedStringInCell:(PSMTabBarCell *)cell {
+    NSAttributedString *attributedString = [cell attributedStringValue];
+    if (![cell.previousAttributedString isEqualToAttributedString:attributedString]) {
+        cell.previousAttributedString = attributedString;
+        CGFloat width = [attributedString size].width;
+        cell.previousWidthOfAttributedString = width;
+        return width;
+    } else {
+        return cell.previousWidthOfAttributedString;
+    }
+}
+
 - (float)desiredWidthOfTabCell:(PSMTabBarCell *)cell {
     return ceil([self widthOfLeftMatterInCell:cell] +
-                [[cell attributedStringValue] size].width +
+                [self widthOfAttributedStringInCell:cell] +
                 [self widthOfRightMatterInCell:cell]);
 }
 
@@ -255,7 +306,7 @@
         contents = @"";
     }
     NSDictionary *attributes =
-        @{ NSFontAttributeName: [NSFont systemFontOfSize:11],
+        @{ NSFontAttributeName: [NSFont systemFontOfSize:self.fontSize],
            NSForegroundColorAttributeName: [self textColorForCell:cell] };
     return [[[NSMutableAttributedString alloc] initWithString:contents
                                                    attributes:attributes]
@@ -299,20 +350,22 @@
 
     // Add font attribute
     [attrStr addAttribute:NSFontAttributeName
-                    value:[NSFont systemFontOfSize:11.0]
+                    value:[NSFont systemFontOfSize:self.fontSize]
                     range:range];
     [attrStr addAttribute:NSForegroundColorAttributeName
                     value:textColor
                     range:range];
 
     // Paragraph Style for Truncating Long Text
-    static NSMutableParagraphStyle *truncatingTailParagraphStyle = nil;
-    if (!truncatingTailParagraphStyle) {
-        truncatingTailParagraphStyle =
-            [[[NSParagraphStyle defaultParagraphStyle] mutableCopy] retain];
-        [truncatingTailParagraphStyle setLineBreakMode:NSLineBreakByTruncatingTail];
+    NSMutableParagraphStyle *truncatingTailParagraphStyle =
+        [[[NSParagraphStyle defaultParagraphStyle] mutableCopy] autorelease];
+    [truncatingTailParagraphStyle setLineBreakMode:[cell truncationStyle]];
+    if (_orientation == PSMTabBarHorizontalOrientation) {
         [truncatingTailParagraphStyle setAlignment:NSCenterTextAlignment];
+    } else {
+        [truncatingTailParagraphStyle setAlignment:NSLeftTextAlignment];
     }
+
     [attrStr addAttribute:NSParagraphStyleAttributeName
                     value:truncatingTailParagraphStyle
                     range:range];
@@ -320,11 +373,15 @@
     return attrStr;
 }
 
+- (CGFloat)fontSize {
+    return 11.0;
+}
+
 #pragma mark - Drawing
 
 - (NSColor *)topLineColorSelected:(BOOL)selected {
     if (selected) {
-        return [tabBar.window backgroundColor];
+        return [_tabBar.window backgroundColor];
     } else {
         return [NSColor colorWithSRGBRed:182/255.0 green:179/255.0 blue:182/255.0 alpha:1];
     }
@@ -344,8 +401,8 @@
 
 - (NSColor *)backgroundColorSelected:(BOOL)selected highlightAmount:(CGFloat)highlightAmount {
     if (selected) {
-        if (tabBar.window.backgroundColor) {
-            return tabBar.window.backgroundColor;
+        if (_tabBar.window.backgroundColor) {
+            return _tabBar.window.backgroundColor;
         } else {
             return [NSColor windowBackgroundColor];
         }
@@ -384,18 +441,18 @@
     NSRectFill(cellFrame);
 
     if (tabColor) {
+        // Alpha the non-key window's tab colors a bit to make it clearer which window is key.
+        CGFloat alpha = [_tabBar.window isKeyWindow] ? 0.8 : 0.6;
+        
+        // Alpha the inactive tab's colors a bit to make it clear which tab is active.
         if (selected) {
-            [[tabColor colorWithAlphaComponent:0.8] set];
+            [[tabColor colorWithAlphaComponent:alpha] set];
             NSRectFillUsingOperation(cellFrame, NSCompositeSourceOver);
         } else {
-            NSRect colorRect = cellFrame;
-            if (horizontal) {
-                colorRect.size.height = 4;
-            } else {
-                colorRect.size.width = 6;
-            }
-            [[tabColor colorWithAlphaComponent:0.8] set];
-            NSRectFillUsingOperation(colorRect, NSCompositeSourceOver);
+            NSColor *startingColor = [tabColor colorWithAlphaComponent:alpha - 0.2];
+            NSColor *endingColor = [tabColor colorWithAlphaComponent:0];
+            NSGradient *gradient = [[[NSGradient alloc] initWithStartingColor:startingColor endingColor:endingColor] autorelease];
+            [gradient drawInRect:cellFrame angle:-90];
         }
     }
 
@@ -433,14 +490,15 @@
         [self drawHorizontalLineInFrame:cellFrame y:NSMaxY(cellFrame) - 1];
         cellFrame.origin.x -= 1;
         cellFrame.size.width += 3;
-        
+
         cellFrame.size.width -= 1;
         cellFrame.origin.y -= 1;
         cellFrame.size.height += 2;
+
         // Left line
         [[self topLineColorSelected:selected] set];
         [self drawVerticalLineInFrame:cellFrame x:NSMinX(cellFrame)];
-        
+
         // Right line
         [[self bottomLineColorSelected:selected] set];
         [self drawVerticalLineInFrame:cellFrame x:NSMaxX(cellFrame)];
@@ -449,11 +507,11 @@
 
 - (void)drawTabCell:(PSMTabBarCell *)cell highlightAmount:(CGFloat)highlightAmount {
     // TODO: Test hidden control, whose height is less than 2. Maybe it happens while dragging?
-    [self drawCellBackgroundAndFrameHorizontallyOriented:(orientation == PSMTabBarHorizontalOrientation)
+    [self drawCellBackgroundAndFrameHorizontallyOriented:(_orientation == PSMTabBarHorizontalOrientation)
                                                   inRect:cell.frame
                                                 selected:([cell state] == NSOnState)
                                             withTabColor:[cell tabColor]
-                                                  isLast:cell == tabBar.cells.lastObject
+                                                  isLast:cell == _tabBar.cells.lastObject
                                          highlightAmount:highlightAmount];
 
     [self drawInteriorWithTabCell:cell inView:[cell controlView] highlightAmount:highlightAmount];
@@ -536,26 +594,27 @@
     }
 
     // label rect
-    NSRect labelRect;
-    labelRect.origin.x = labelPosition;
-    labelRect.size.width = cellFrame.size.width - (labelRect.origin.x - cellFrame.origin.x) - kPSMTabBarCellPadding;
-    if ([cell hasIcon]) {
-        // Reduce size of label if there is an icon
-        labelRect.size.width -= iconRect.size.width + kPSMTabBarCellIconPadding;
-    }
-    labelRect.size.height = cellFrame.size.height;
-    labelRect.origin.y = cellFrame.origin.y + kSPMTabBarCellInternalYMargin + 0.5;
+    NSAttributedString *attributedString = [cell attributedStringValue];
+    if (attributedString.length > 0) {
+        NSRect labelRect;
+        labelRect.origin.x = labelPosition;
+        labelRect.size.width = cellFrame.size.width - (labelRect.origin.x - cellFrame.origin.x) - kPSMTabBarCellPadding;
+        if ([cell hasIcon]) {
+            // Reduce size of label if there is an icon or activity indicator
+            labelRect.size.width -= iconRect.size.width + kPSMTabBarCellIconPadding;
+        } else if (![[cell indicator] isHidden]) {
+            labelRect.size.width -= cell.indicator.frame.size.width + kPSMTabBarCellIconPadding;
+        }
+        labelRect.size.height = cellFrame.size.height;
+        NSFont *font = [[attributedString fontAttributesInRange:NSMakeRange(0, 1)] objectForKey:NSFontAttributeName];
+        labelRect.origin.y = cellFrame.origin.y + kPSMTabBarCellBaselineOffset - font.ascender;
 
-    if (![[cell indicator] isHidden]) {
-        labelRect.size.width -= (kPSMTabBarIndicatorWidth + kPSMTabBarCellPadding);
-    }
+        if ([cell count] > 0) {
+            labelRect.size.width -= ([self objectCounterRectForTabCell:cell].size.width + kPSMTabBarCellPadding);
+        }
 
-    if ([cell count] > 0) {
-        labelRect.size.width -= ([self objectCounterRectForTabCell:cell].size.width + kPSMTabBarCellPadding);
+        [attributedString drawInRect:labelRect];
     }
-
-    // label
-    [[cell attributedStringValue] drawInRect:labelRect];
 }
 
 - (NSColor *)tabBarColor {
@@ -565,7 +624,7 @@
 - (void)drawBackgroundInRect:(NSRect)rect
                        color:(NSColor*)backgroundColor
                   horizontal:(BOOL)horizontal {
-    if (orientation == PSMTabBarVerticalOrientation && [tabBar frame].size.width < 2) {
+    if (_orientation == PSMTabBarVerticalOrientation && [_tabBar frame].size.width < 2) {
         return;
     }
 
@@ -576,12 +635,12 @@
     NSRectFillUsingOperation(rect, NSCompositeSourceAtop);
 
     [[self bottomLineColorSelected:NO] set];
-    if (orientation == PSMTabBarHorizontalOrientation) {
+    if (_orientation == PSMTabBarHorizontalOrientation) {
         [NSBezierPath strokeLineFromPoint:NSMakePoint(rect.origin.x,
                                                       rect.origin.y + rect.size.height - 0.5) 
                                   toPoint:NSMakePoint(rect.origin.x + rect.size.width,
                                                       rect.origin.y + rect.size.height - 0.5)];
-        
+
         [[self topLineColorSelected:NO] set];
         // this looks ok with tabs on top but doesn't appear w/ tabs on bottom for some reason
         [NSBezierPath strokeLineFromPoint:NSMakePoint(rect.origin.x,
@@ -631,12 +690,12 @@
 - (void)drawTabBar:(PSMTabBarControl *)bar
             inRect:(NSRect)rect
         horizontal:(BOOL)horizontal {
-    if (orientation != [bar orientation]) {
-        orientation = [bar orientation];
+    if (_orientation != [bar orientation]) {
+        _orientation = [bar orientation];
     }
 
-    if (tabBar != bar) {
-        tabBar = bar;
+    if (_tabBar != bar) {
+        _tabBar = bar;
     }
 
     [self drawBackgroundInRect:rect color:[self tabBarColor] horizontal:horizontal];
@@ -653,7 +712,7 @@
             [[[NSMutableAttributedString alloc] initWithString:contents] autorelease];
         NSRange range = NSMakeRange(0, [contents length]);
         [attrStr addAttribute:NSFontAttributeName
-                        value:[NSFont systemFontOfSize:11.0]
+                        value:[NSFont systemFontOfSize:self.fontSize]
                         range:range];
         NSMutableParagraphStyle *centeredParagraphStyle =
             [[[NSParagraphStyle defaultParagraphStyle] mutableCopy] autorelease];

@@ -50,7 +50,7 @@
 
     // Create a window and save convenience pointers to its various bits.
     _session = [[iTermController sharedInstance] launchBookmark:nil inTerminal:nil];
-    _windowController = (PseudoTerminal *)_session.tab.realParentWindow;
+    _windowController = (PseudoTerminal *)_session.delegate.realParentWindow;
     _view = (iTermRootTerminalView *)_windowController.window.contentView;
 
     // Make it big so all the tools fit.
@@ -77,7 +77,7 @@
 }
 
 - (void)tearDown {
-    iTermApplication *app = (iTermApplication *)[NSApplication sharedApplication];
+    iTermApplication *app = iTermApplication.sharedApplication;
     app.fakeCurrentEvent = nil;
     [_currentDir release];
     [_insertedText release];
@@ -340,7 +340,7 @@
                 byExtendingSelection:NO];
 
     tool.toolWrapper.delegate.delegate = self;
-    iTermApplication *app = (iTermApplication *)[NSApplication sharedApplication];
+    iTermApplication *app = iTermApplication.sharedApplication;
     CGEventRef fakeEvent = CGEventCreateKeyboardEvent(NULL, 0, true);
     CGEventSetFlags(fakeEvent, kCGEventFlagMaskAlternate);
     app.fakeCurrentEvent = [NSEvent eventWithCGEvent:fakeEvent];
@@ -511,6 +511,9 @@
 
 - (NSArray<iTermCommandHistoryCommandUseMO *> *)toolbeltCommandUsesForCurrentSession {
     return @[];
+}
+
+- (void)toolbeltDidFinishGrowing {
 }
 
 @end
